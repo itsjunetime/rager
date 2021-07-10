@@ -1,4 +1,11 @@
+# The base URL of the rageshake server
 server = "https://rageshake.server.com"
+
+# The username and password for basic HTTP Auth with the rageshake server
 username = "username"
 password = "password"
+
+# Technically how many tokio tasks you want to spawn when syncing the files;
+# Can cause issues if you do around 100 or more, and I've found good performance
+# when running with 50, so I'd recommend leaving it as is.
 threads = 50

@@ -1,0 +1,4 @@
+server = "https://rageshake.server.com"
+username = "username"
+password = "password"
+threads = 50

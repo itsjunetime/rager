@@ -14,7 +14,8 @@ pub async fn sync_logs(config: config::Config) {
 		prefix: "Checking Directories:".to_owned(),
 		started: 0,
 		done: 0,
-		total: 0
+		total: 0,
+		finalized_size: false,
 	}));
 
 	// to_check is vec of all the files that'll need to be downloaded this time. We iterate through
@@ -83,12 +84,14 @@ pub async fn sync_logs(config: config::Config) {
 	};
 
 	let day_links = get_links(&days_text);
-	
+	let day_len = day_links.len();
+
 	println!("Finding the files that need to be downloaded...");
 
 	// for each day...
 	let day_joins = day_links.into_iter()
-		.fold(Vec::new(), | mut joins, d | {
+		.enumerate()
+		.fold(Vec::new(), | mut joins, (idx, d) | {
 
 			let mut day_log_dir = log_dir.clone();
 			let day = d.to_owned();
@@ -123,6 +126,21 @@ pub async fn sync_logs(config: config::Config) {
 
 				if let Ok(mut state) = day_state.lock() {
 					state.add_to_size(time_lines.len());
+
+					// We check to set this finalized_size because we can't predict the order in
+					// which these tokio tasks will execute. It may completely check all
+					// directories but one, then start on the final directory.
+					//
+					// However, if this happens and we don't have a way of verifying that we've
+					// added the total number of directories to the state, it will think it's done
+					// when it hasn't even started on one directory
+					//
+					// So we need a way of manually telling it that we're not done yet, even if
+					// we've downloaded the number of files that we've said we need to download.
+					// Hence the flag.
+					if idx == day_len {
+						state.finalized_size = true;
+					}
 				}
 
 				let time_joins = time_lines
@@ -152,28 +170,27 @@ pub async fn sync_logs(config: config::Config) {
 										state.finished_one();
 									}
 									return;
+								};
+								($state:expr$(, $args:expr)*) => {
+									{
+										st_err!($state$(, $args)*);
+										finish!();
+									}
 								}
 							}
 
 							if let Err(err) = fs::create_dir_all(&time_log_dir) {
-								st_err!(time_state, "Could not create directory {:?}: {}", time_log_dir, err);
-								finish!();
+								finish!(time_state, "Could not create directory {:?}: {}", time_log_dir, err);
 							}
 
 							let files = match req_with_auth(&time_url, &*time_conf).await {
 								Ok(f) => f,
-								Err(err) => {
-									st_err!(time_state, "Could not retrieve list of files at {}: {}", time_url, err);
-									finish!();
-								}
+								Err(err) => finish!(time_state, "Could not retrieve list of files at {}: {}", time_url, err),
 							};
 
 							let files_text = match files.text().await {
 								Ok(ft) => ft,
-								Err(err) => {
-									st_err!(time_state, "Could not get text for list of files at {}: {}", time_url, err);
-									finish!();
-								}
+								Err(err) => finish!(time_state, "Could not get text for list of files at {}: {}", time_url, err),
 							};
 
 							// and iterate through the list of files (not the content of the files,
@@ -199,7 +216,6 @@ pub async fn sync_logs(config: config::Config) {
 						});
 
 						joins.push(join);
-
 						joins
 					});
 
@@ -209,13 +225,14 @@ pub async fn sync_logs(config: config::Config) {
 
 			joins.push(join);
 			joins
-
 		});
 
 	futures::future::join_all(day_joins).await;
 
 	// change the progress bar title to reflect that we're downloading individual files now,
 	// instead of looking through entries. Also reset the counts.
+	// We don't need to reset the finalized_size flag because we set the total before actually
+	// spawning any tasks, so we won't run into the same issue as above.
 	if let Ok(mut state) = state.lock() {
 		state.prefix = "Downloaded:".to_owned();
 		state.total = 0;
@@ -285,16 +302,15 @@ pub async fn sync_logs(config: config::Config) {
 }
 
 pub fn desync_all() {
-	// ugh. nestedness.
 	if let Ok(mut contents) = std::fs::read_dir(&sync_dir()) {
-		while let Some(dir) = contents.next() {
-			if let Ok(path) = dir {
-				if path.path().is_dir() {
-					match std::fs::remove_dir_all(&path.path()) {
-						Ok(_) => println!("Removed logs at {:?}", path.path()),
-						Err(err) => err!("Unable to remove logs at {:?}: {}", path.path(), err)
-					}
-				}
+		while let Some(Ok(path)) = contents.next() {
+			if !path.path().is_dir() {
+				continue;
+			}
+
+			match std::fs::remove_dir_all(&path.path()) {
+				Ok(_) => println!("Removed logs at {:?}", path.path()),
+				Err(err) => err!("Unable to remove logs at {:?}: {}", path.path(), err)
 			}
 		}
 	}
@@ -310,6 +326,7 @@ struct SyncTracker {
 	pub started: usize,
 	pub done: usize,
 	pub total: usize,
+	pub finalized_size: bool,
 	pub prefix: String,
 }
 
@@ -333,7 +350,7 @@ impl SyncTracker {
 	pub fn update(&mut self, clear: bool) {
 		use std::io::Write;
 
-		if self.done < self.total {
+		if self.done < self.total && !self.finalized_size {
 			let clear = if clear {
 				"\x1b[2K\r"
 			} else {
@@ -341,6 +358,7 @@ impl SyncTracker {
 			};
 
 			print!("{}{} \x1b[32;1m{}\x1b[1m/\x1b[32m{}\x1b[0m ({} in progress)", clear, self.prefix, self.done, self.total, self.started);
+			// have to flush stdout 'cause it's line-buffered and this print! doesn't have a newline
 			let _ = std::io::stdout().flush();
 
 		} else {

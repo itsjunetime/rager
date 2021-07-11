@@ -197,7 +197,7 @@ fn entry_contains_term(entry: &EntryDetails, term: &str) -> bool {
 	false
 }
 
-fn get_details_of_entry(entry: &std::path::PathBuf) -> Option<EntryDetails> {
+pub fn get_details_of_entry(entry: &std::path::PathBuf) -> Option<EntryDetails> {
 	if let Some(contents) = get_detail_file_of_entry(entry) {
 		let mut details = "";
 		let mut user_id = "unknown";

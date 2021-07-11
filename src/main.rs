@@ -69,8 +69,8 @@ async fn main() {
 		.subcommand(App::new("view")
 			.about("View a specific Entry")
 			.arg(Arg::with_name("entry")
-				.short("e")
-				.long("entry")
+				.index(1)
+				.required(true)
 				.help("The entry (e.g. '2021-07-08/161300') to view the logs for")
 				.takes_value(true)))
 		.get_matches();
@@ -112,10 +112,21 @@ async fn main() {
 		}
 
 		search::search(any, user, when, term, view).await;
+	} else if let Some(args) = matches.subcommand_matches("view") {
+		// safe to unwrap 'cause Clap would catch if it wasn't included
+		let entry = args.value_of("entry").unwrap();
+
+		let mut dir = sync_dir();
+		dir.push(entry);
+
+		match search::get_details_of_entry(&dir) {
+			Some(ent) => view::view(&ent),
+			None => err!("There appears to be no entry at {:?}", dir),
+		}
 	}
 }
 
-async fn req_with_auth<U: reqwest::IntoUrl>(url: U, conf: &config::Config) -> anyhow::Result<reqwest::Response> {
+async fn req_with_auth<U: reqwest::IntoUrl>(url: U, conf: &config::Config) -> reqwest::Result<reqwest::Response> {
 	let client = reqwest::Client::new();
 
 	let req = client.get(url)

@@ -49,7 +49,7 @@ async fn main() {
 			.arg(Arg::with_name("when")
 				.short("w")
 				.long("when")
-				.help("Search for logs from a specific day")
+				.help("Search for logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
 				.takes_value(true))
 			.arg(Arg::with_name("term")
 				.short("t")

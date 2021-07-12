@@ -16,4 +16,4 @@ cargo build --release
 ## Usage
 Run `rager help` to see all of the options available to you.
 
-At time of writing, search terms don't yet have Regex support and the `any` option while searching doesn't work, but these issues should be fixed soon.
+At time of writing, the `any` option while searching doesn't work, but this issue should be fixed soon.

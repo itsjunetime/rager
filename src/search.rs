@@ -117,8 +117,16 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 						}
 
 						if let Some(term) = term_cond {
+							let regex = match regex::Regex::new(&term) {
+								Ok(rg) => rg,
+								Err(err) => {
+									err!("Cannot format '{}' into regex: {}", term, err);
+									return;
+								}
+							};
+
 							entr = entr.into_iter()
-								.filter(|e| entry_contains_term(&e, &term))
+								.filter(|e| entry_matches_regex(&e, &regex))
 								.collect();
 						}
 					}
@@ -174,7 +182,7 @@ fn get_entries_for_day(day: &std::path::PathBuf) -> Option<Vec<EntryDetails>> {
 	None
 }
 
-fn entry_contains_term(entry: &EntryDetails, term: &str) -> bool {
+fn entry_matches_regex(entry: &EntryDetails, rgx: &regex::Regex) -> bool {
 	if let Ok(contents) = fs::read_dir(&entry.path) {
 		for file_res in contents {
 			if let Ok(file) = file_res {
@@ -187,7 +195,7 @@ fn entry_contains_term(entry: &EntryDetails, term: &str) -> bool {
 					Err(_) => continue,
 				};
 
-				if text.contains(term) {
+				if rgx.is_match(&text) {
 					return true;
 				}
 			}

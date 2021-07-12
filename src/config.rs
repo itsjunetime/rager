@@ -10,7 +10,7 @@ pub struct Config {
 
 impl Config {
 	pub fn from_file(file: Option<String>) -> Option<Config> {
-		let conf = file.unwrap_or(Config::default_file_url());
+		let conf = file.unwrap_or_else(Config::default_file_url);
 
 		match read_to_string(&conf) {
 			Ok(text) => match text.parse::<toml::Value>() {

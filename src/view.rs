@@ -6,13 +6,13 @@ use crate::{
 use regex::Regex;
 use lazy_static::lazy_static;
 
-const NULL_COLOR: &'static str = "\x1b[31;1m";
-const NS_COLOR: &'static str = "\x1b[32;1m";
-const HEX_COLOR: &'static str = "\x1b[33;1m";
-const NUM_COLOR: &'static str = "\x1b[34;1m";
-const FN_COLOR: &'static str = "\x1b[35;1m";
-const USER_COLOR: &'static str = "\x1b[36;1m";
-const RESET: &'static str = "\x1b[0m";
+const NULL_COLOR: &str = "\x1b[31;1m";
+const NS_COLOR: &str = "\x1b[32;1m";
+const HEX_COLOR: &str = "\x1b[33;1m";
+const NUM_COLOR: &str = "\x1b[34;1m";
+const FN_COLOR: &str = "\x1b[35;1m";
+const USER_COLOR: &str = "\x1b[36;1m";
+const RESET: &str = "\x1b[0m";
 
 lazy_static! {
 	static ref NULL_REGEX: Regex = Regex::new(r"\(null\)").unwrap();
@@ -23,7 +23,7 @@ lazy_static! {
 	static ref USER_REGEX: Regex = Regex::new(r"(?P<user>@\w+:[^\.]+\.(com|org|net))").unwrap();
 }
 
-pub fn view(entry: &EntryDetails) {
+pub fn view(entry: &EntryDetails, matches: Vec<std::path::PathBuf>) {
 	let logs = if let Ok(contents) = fs::read_dir(&entry.path) {
 		contents.fold(Vec::new(), |mut entries, log_res| {
 			if let Ok(log) = log_res {
@@ -45,7 +45,13 @@ pub fn view(entry: &EntryDetails) {
 	let string_paths = logs.iter()
 		.fold(Vec::new(), | mut files, log | {
 			if let Some(ref_str) = log.to_str() {
-				files.push(ref_str.to_owned());
+				let log_str = if matches.contains(log) {
+					format!("{} (matches)", ref_str)
+				} else {
+					ref_str.to_owned()
+				};
+
+				files.push(log_str);
 			}
 			files
 		});
@@ -72,7 +78,9 @@ pub fn view(entry: &EntryDetails) {
 		let mut pager = minus::Pager::new().unwrap();
 
 		pager.set_text(file_contents);
-		pager.set_prompt(log.to_str().unwrap_or("rager"));
+
+		let prompt_str = format!("{} ({})", log.to_str().unwrap_or("rager"), entry.details);
+		pager.set_prompt(prompt_str);
 
 		if let Err(err) = minus::page_all(pager) {
 			err!("Can't page output: {}", err);

@@ -220,7 +220,7 @@ pub async fn sync_logs(config: config::Config) {
 					});
 
 				futures::future::join_all(time_joins).await;
-				
+
 			});
 
 			joins.push(join);

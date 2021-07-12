@@ -14,8 +14,8 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 	let matches: Arc<RwLock<Vec<EntryDetails>>> = Arc::new(RwLock::new(Vec::new()));
 	let date_regex = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
 
-	let day_matches = if let Some(ref days) = when {
-		Some(days.split(',')
+	let day_matches = when.as_ref()
+		.map(|days| days.split(',')
 			.fold(Vec::new(), |mut mtc, day| {
 				if date_regex.is_match(day) {
 					mtc.push(day.to_owned())
@@ -48,10 +48,8 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 				}
 
 				mtc
-			}))
-	} else {
-		None
-	};
+			})
+	);
 
 	if when.is_some() && day_matches.is_none() {
 		err!("Your 'when' could not be parsed into a date. Please only pass in a day of the week or an ISO-8601 date.");
@@ -108,10 +106,10 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 
 			let join = tokio::spawn(async move {
 
-				if let Some(mut entr) = get_entries_for_day(&dir_clone) {
+				if let Some(mut entry) = get_entries_for_day(&dir_clone) {
 					if !any {
 						if let Some(user) = user_cond {
-							entr = entr.into_iter()
+							entry = entry.into_iter()
 								.filter(|e| e.user_id.contains(&user))
 								.collect();
 						}
@@ -125,14 +123,16 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 								}
 							};
 
-							entr = entr.into_iter()
-								.filter(|e| entry_matches_regex(&e, &regex))
+							entry = entry.into_iter()
+								.filter(|e| 
+									!files_in_entry_with_regex(&e, &regex).is_empty()
+								)
 								.collect();
 						}
 					}
 
 					if let Ok(mut c_matches) = match_clone.write() {
-						c_matches.append(&mut entr);
+						c_matches.append(&mut entry);
 					}
 				}
 			});
@@ -156,7 +156,13 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 				let entry = &finds[choice[0]];
 
 				if view {
-					view::view(entry);
+					let entries = term.map(|t| {
+						// safe to unwrap 'cause if term_cond is some, we've already verified the regex.
+						let rgx = regex::Regex::new(&t).unwrap();
+						files_in_entry_with_regex(&entry, &rgx)
+					});
+
+					view::view(entry, entries.unwrap_or_default());
 				} else {
 					println!("{}", entry.description());
 				}
@@ -165,7 +171,7 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 	};
 }
 
-fn get_entries_for_day(day: &std::path::PathBuf) -> Option<Vec<EntryDetails>> {
+fn get_entries_for_day(day: &std::path::Path) -> Option<Vec<EntryDetails>> {
 	if let Ok(contents) = fs::read_dir(&day) {
 		return Some(contents.fold(Vec::new(), |mut es, t| {
 
@@ -182,30 +188,32 @@ fn get_entries_for_day(day: &std::path::PathBuf) -> Option<Vec<EntryDetails>> {
 	None
 }
 
-fn entry_matches_regex(entry: &EntryDetails, rgx: &regex::Regex) -> bool {
+// will return a vector of the files that contain the match so we can indicate it to the user
+fn files_in_entry_with_regex(entry: &EntryDetails, rgx: &regex::Regex) -> Vec<path::PathBuf> {
 	if let Ok(contents) = fs::read_dir(&entry.path) {
-		for file_res in contents {
-			if let Ok(file) = file_res {
-				if !file.path().is_file() {
-					continue;
-				}
+		contents.fold(Vec::new(), | mut files, file_res | {
+			let file = match file_res {
+				Ok(f) => f,
+				_ => return files,
+			};
 
-				let text = match fs::read_to_string(&file.path()) {
-					Ok(txt) => txt,
-					Err(_) => continue,
-				};
+			let text = match fs::read_to_string(&file.path()) {
+				Ok(txt) => txt,
+				_ => return files
+			};
 
-				if rgx.is_match(&text) {
-					return true;
-				}
+			if rgx.is_match(&text) {
+				files.push(file.path())
 			}
-		}
-	}
 
-	false
+			files
+		})
+	} else {
+		Vec::new()
+	}
 }
 
-pub fn get_details_of_entry(entry: &std::path::PathBuf) -> Option<EntryDetails> {
+pub fn get_details_of_entry(entry: &std::path::Path) -> Option<EntryDetails> {
 	if let Some(contents) = get_detail_file_of_entry(entry) {
 		let mut details = "";
 		let mut user_id = "unknown";
@@ -249,7 +257,7 @@ pub fn get_details_of_entry(entry: &std::path::PathBuf) -> Option<EntryDetails> 
 	None
 }
 
-fn get_detail_file_of_entry(entry: &std::path::PathBuf) -> Option<String> {
+fn get_detail_file_of_entry(entry: &std::path::Path) -> Option<String> {
 	let mut dir = entry.to_owned();
 	dir.push("details.log.gz");
 
@@ -264,21 +272,21 @@ fn get_detail_file_of_entry(entry: &std::path::PathBuf) -> Option<String> {
 }
 
 pub struct EntryDetails {
+	pub path: path::PathBuf,
+	pub details: String,
 	user_id: String,
 	os: EntryOS,
-	details: String,
-	version: String,
-	pub path: path::PathBuf
+	version: String
 }
 
 impl EntryDetails {
 	pub fn new(user_id: String, os: EntryOS, details: String, version: String, path: path::PathBuf) -> EntryDetails {
 		EntryDetails {
+			path,
+			details,
 			user_id,
 			os,
-			details,
-			version,
-			path
+			version
 		}
 	}
 

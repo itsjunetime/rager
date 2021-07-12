@@ -5,8 +5,8 @@ mod search;
 mod config;
 mod view;
 
-const ERR_PREFIX: &'static str = "\x1b[31;1mERROR:\x1b[0m";
-const WARN_PREFIX: &'static str = "\x1b[33;1mWARNING:\x1b[0m";
+const ERR_PREFIX: &str = "\x1b[31;1mERROR:\x1b[0m";
+const WARN_PREFIX: &str = "\x1b[33;1mWARNING:\x1b[0m";
 
 #[macro_export]
 macro_rules! err{
@@ -120,7 +120,7 @@ async fn main() {
 		dir.push(entry);
 
 		match search::get_details_of_entry(&dir) {
-			Some(ent) => view::view(&ent),
+			Some(ent) => view::view(&ent, Vec::new()),
 			None => err!("There appears to be no entry at {:?}", dir),
 		}
 	}
@@ -140,10 +140,10 @@ fn sync_dir() -> std::path::PathBuf {
 	// documentation says this always returns some so we can safely unwrap
 	let mut sync_dir = dirs::data_dir().unwrap();
 	sync_dir.push("rageshake");
-	return sync_dir;
+	sync_dir
 }
 
-fn get_links<'a>(output: &'a str) -> Vec<&'a str> {
+fn get_links(output: &str) -> Vec<&str> {
 	output.split('\n')
 		.collect::<Vec<&str>>()
 		.iter()

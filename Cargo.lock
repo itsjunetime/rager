@@ -63,9 +63,9 @@ checksum = "b700ce4376041dcd0a327fd0097c41095743c4c8af8887265942faf1100bd040"
 
 [[package]]
 name = "cc"
-version = "1.0.68"
+version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a72c244c1ff497a746a7e1fb3d14bd08420ecda70c8f25c7112f2781652d787"
+checksum = "e70cc2f62c6ce1868963827bd677764c62d07c3d9a3e1fb1177ee1a9ab199eb2"
 
 [[package]]
 name = "cfg-if"
@@ -513,9 +513,9 @@ checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
 
 [[package]]
 name = "minus"
-version = "4.0.0-alpha7"
+version = "4.0.0-alpha8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34035feac42d0b4045b4cc4705abce6def80b30a0cc2146b07a486fd1ca0ac73"
+checksum = "aa69a8f6076d785f5f394f6fc943e2f70190a29a26a24db07d858256e303a5df"
 dependencies = [
  "crossterm",
  "regex",

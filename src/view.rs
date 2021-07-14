@@ -12,15 +12,17 @@ const HEX_COLOR: &str = "\x1b[33;1m";
 const NUM_COLOR: &str = "\x1b[34;1m";
 const FN_COLOR: &str = "\x1b[35;1m";
 const USER_COLOR: &str = "\x1b[36;1m";
+const URL_COLOR: &str = "\x1b[31;3m";
 const RESET: &str = "\x1b[0m";
 
 lazy_static! {
 	static ref NULL_REGEX: Regex = Regex::new(r"\(null\)").unwrap();
 	static ref NS_REGEX: Regex = Regex::new(r"(?P<id>\[[a-zA-Z]+\])").unwrap();
 	static ref HEX_REGEX: Regex = Regex::new(r"(?P<hex>0x[a-fA-F0-9]+)").unwrap();
-	static ref NUM_REGEX: Regex = Regex::new(r"(?P<bfr>[^\w])(?P<num>#?\d+(\.\d+)*)(?P<aft>[^\w])").unwrap();
-	static ref FN_REGEX: Regex = Regex::new(r"(?P<bfr>[^a-zA-Z])(?P<fn>[a-z]+[A-Z][a-zA-Z]*)").unwrap();
+	static ref NUM_REGEX: Regex = Regex::new(r"(?P<bfr>([^\w]|^))(?P<num>#?\d+((\.|\-|:)\d+)*)(?P<aft>[^\w])").unwrap();
+	static ref FN_REGEX: Regex = Regex::new(r" (?P<fn>[a-z]+[A-Z][a-zA-Z]*)(?P<aft>(:| ))").unwrap();
 	static ref USER_REGEX: Regex = Regex::new(r"(?P<user>@\w+:[^\.]+\.(com|org|net))").unwrap();
+	static ref URL_REGEX: Regex = Regex::new(r"(?P<url>(_matrix|.well-known)(/[\w%\-@:\.!]+)*)").unwrap();
 }
 
 pub fn view(entry: &EntryDetails, matches: Vec<std::path::PathBuf>) {
@@ -92,9 +94,10 @@ pub fn view(entry: &EntryDetails, matches: Vec<std::path::PathBuf>) {
 fn colorize_line(line: &str) -> String {
 	let res = NUM_REGEX.replace_all(&line, format!("$bfr{}$num{}$aft", NUM_COLOR, RESET));
 	let res = NS_REGEX.replace_all(&res, format!("{}$id{}", NS_COLOR, RESET));
-	let res = FN_REGEX.replace_all(&res, format!("$bfr{}$fn{}", FN_COLOR, RESET));
+	let res = FN_REGEX.replace_all(&res, format!(" {}$fn{}$aft", FN_COLOR, RESET));
 	let res = NULL_REGEX.replace_all(&res, format!("{}(null){}", NULL_COLOR, RESET));
 	let res = HEX_REGEX.replace_all(&res, format!("{}$hex{}", HEX_COLOR, RESET));
+	let res = URL_REGEX.replace_all(&res, format!("{}$url{}", URL_COLOR, RESET));
 	let res = USER_REGEX.replace_all(&res, format!("{}$user{}", USER_COLOR, RESET));
 
 	res.to_string()

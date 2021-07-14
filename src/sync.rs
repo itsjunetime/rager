@@ -91,7 +91,7 @@ pub async fn sync_logs(config: config::Config) {
 	// for each day...
 	let day_joins = day_links.into_iter()
 		.enumerate()
-		.fold(Vec::new(), | mut joins, (idx, d) | {
+		.map(|(idx, d)| {
 
 			let mut day_log_dir = log_dir.clone();
 			let day = d.to_owned();
@@ -105,7 +105,7 @@ pub async fn sync_logs(config: config::Config) {
 
 			// spawn a new thread for each entry in each day, since we have to check all the files
 			// in each entry
-			let join = tokio::spawn(async move {
+			tokio::spawn(async move {
 				let times = match req_with_auth(&day_url, &*day_conf).await {
 					Ok(tm) => tm,
 					Err(err) => {
@@ -145,7 +145,7 @@ pub async fn sync_logs(config: config::Config) {
 
 				let time_joins = time_lines
 					.into_iter()
-					.fold(Vec::new(), | mut joins, t | {
+					.map(|t| {
 
 						let mut time_log_dir = day_log_dir.clone();
 						let time = t.to_owned();
@@ -163,7 +163,7 @@ pub async fn sync_logs(config: config::Config) {
 						}
 
 						// and then spawn a new thread for each entry...
-						let join = tokio::spawn(async move {
+						tokio::spawn(async move {
 							macro_rules! finish{
 								() => {
 									if let Ok(mut state) = time_state.lock() {
@@ -213,18 +213,12 @@ pub async fn sync_logs(config: config::Config) {
 							}
 
 							finish!();
-						});
-
-						joins.push(join);
-						joins
+						})
 					});
 
 				futures::future::join_all(time_joins).await;
 
-			});
-
-			joins.push(join);
-			joins
+			})
 		});
 
 	futures::future::join_all(day_joins).await;

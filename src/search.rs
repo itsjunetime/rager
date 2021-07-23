@@ -274,9 +274,9 @@ fn get_detail_file_of_entry(entry: &std::path::Path) -> Option<String> {
 pub struct EntryDetails {
 	pub path: path::PathBuf,
 	pub details: String,
-	user_id: String,
-	os: EntryOS,
-	version: String
+	pub user_id: String,
+	pub os: EntryOS,
+	pub version: String
 }
 
 impl EntryDetails {

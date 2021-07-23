@@ -81,7 +81,7 @@ pub fn view(entry: &EntryDetails, matches: Vec<std::path::PathBuf>) {
 
 		pager.set_text(file_contents);
 
-		let prompt_str = format!("{} ({})", log.to_str().unwrap_or("rager"), entry.details);
+		let prompt_str = format!("{} ({}; {})", log.to_str().unwrap_or("rager"), entry.user_id, entry.details);
 		pager.set_prompt(prompt_str);
 
 		if let Err(err) = minus::page_all(pager) {

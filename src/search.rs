@@ -221,29 +221,51 @@ pub fn get_details_of_entry(entry: &std::path::Path) -> Option<EntryDetails> {
 		let mut version = "1.1.30".to_owned();
 		let mut build: Option<String> = None;
 
+		let mut total_found = 0;
+		let total = 5;
+
 		for (idx, line) in contents.lines().enumerate() {
 			if idx == 0 {
 				details = line;
-			} else if line.starts_with("Application") && line.contains("android") {
-				os = EntryOS::Android;
+
+				total_found += 1;
+			} else if line.starts_with("Application") {
+
+				if line.contains("android") {
+					os = EntryOS::Android;
+				} else if line.contains("web") {
+					os = EntryOS::Desktop;
+				}
+
+				total_found += 1;
 			} else if line.starts_with("user_id") {
 				let components: Vec<&str> = line.split(' ').collect();
 
 				if components.len() > 1 {
 					user_id = components[1];
 				}
+
+				total_found += 1;
 			} else if line.starts_with("Version") {
 				let components: Vec<&str> = line.split(' ').collect();
 
 				if components.len() > 1 {
 					version = components[1].to_owned();
 				}
+
+				total_found += 1;
 			} else if line.starts_with("build") {
 				let components: Vec<&str> = line.split(' ').collect();
 
 				if components.len() > 1 {
 					build = Some(components[1..].join(" "));
 				}
+
+				total_found += 1;
+			}
+
+			if total_found == total {
+				break;
 			}
 		}
 
@@ -300,6 +322,7 @@ impl EntryDetails {
 				match self.os {
 					EntryOS::iOS => "iOS",
 					EntryOS::Android => "Android",
+					EntryOS::Desktop => "Desktop"
 				},
 				self.version,
 				self.path
@@ -312,6 +335,7 @@ impl EntryDetails {
 			match self.os {
 				EntryOS::iOS => "iOS",
 				EntryOS::Android => "Android",
+				EntryOS::Desktop => "Desktop"
 			},
 			self.details)
 	}
@@ -319,5 +343,6 @@ impl EntryDetails {
 
 pub enum EntryOS {
 	iOS,
-	Android
+	Android,
+	Desktop
 }

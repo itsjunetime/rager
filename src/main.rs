@@ -179,12 +179,7 @@ pub fn get_terms_from_matches(terms: &clap::ArgMatches) -> search::SearchTerms {
 		}
 	);
 
-	search::SearchTerms {
-		when,
-		user,
-		term,
-		os
-	}
+	search::SearchTerms { user, term, when, os }
 }
 
 async fn req_with_auth<U: reqwest::IntoUrl>(url: U, conf: &config::Config) -> reqwest::Result<reqwest::Response> {

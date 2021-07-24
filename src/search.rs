@@ -175,6 +175,8 @@ pub async fn entries_with_terms(any: bool, terms: &SearchTerms) -> Option<Vec<En
 
 	futures::future::join_all(joins).await;
 
+	// clippy I know you think that it would be possible to omit the return statements but it
+	// actually wouldn't cause of compiler errors that occur when I remove the semicolon at the end
 	match matches.write() {
 		Ok(mut entries) => {
 			let mut new_entries = Vec::new();
@@ -316,7 +318,7 @@ pub fn get_entry_details(contents: &str, entry: &std::path::Path) -> EntryDetail
 		version = format!("{} ({})", version, bd);
 	}
 
-	return EntryDetails::new(user_id.into(), os, details.into(), version, entry.to_owned())
+	EntryDetails::new(user_id.into(), os, details.into(), version, entry.to_owned())
 }
 
 fn get_detail_file_of_entry(entry: &std::path::Path) -> Option<String> {

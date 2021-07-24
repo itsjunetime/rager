@@ -1,6 +1,7 @@
 use std::{
 	fs::read_to_string,
-	convert::TryInto
+	convert::TryInto,
+	cmp::Ordering
 };
 use crate::{
 	err,
@@ -71,25 +72,22 @@ impl Config {
 							}))
 					));
 
-					let before = some_or_none_str!("sync-before", (|b: &str|
-						match SyncFilter::string_to_arr(b) {
-							Some(arr) => Some(arr),
-							_ => {
-								err!("Your sync-before key does not match ISO-8601 format");
-								return None;
-							}
+					macro_rules! sync_str_to_arr{
+						($key:expr) => {
+							some_or_none_str!($key, (|v: &str|
+								match SyncFilter::string_to_arr(v) {
+									Some(arr) => Some(arr),
+									_ => {
+										err!("Your {} key does not match ISO-8601 format", $key);
+										None
+									}
+								}
+							));
 						}
-					));
+					}
 
-					let after = some_or_none_str!("sync-after", (|a: &str|
-						match SyncFilter::string_to_arr(a) {
-							Some(arr) => Some(arr),
-							_ => {
-								err!("Your sync-after key does not match ISO-8601 format");
-								return None;
-							}
-						}
-					));
+					let before = sync_str_to_arr!("sync-before");
+					let after = sync_str_to_arr!("sync-after");
 
 					let ok_unsure = table["ok-unsure"].as_bool().unwrap_or(true);
 
@@ -169,20 +167,20 @@ impl SyncFilter {
 				for (b, s) in before.iter().zip(&splits) {
 					// if the `before` year is after the date, it's bad (cause it has to be before
 					// 'before'), and if it's before, then we're good.
-					if b > s {
-						break;
-					} else if b < s {
-						return false;
+					match b.cmp(s) {
+						Ordering::Greater => break,
+						Ordering::Less => return false,
+						_ => ()
 					}
 				}
 			}
 
 			if let Some(after) = self.after {
 				for (a, s) in after.iter().zip(&splits) {
-					if a > s {
-						return false;
-					} else if a < s {
-						break;
+					match a.cmp(s) {
+						Ordering::Greater => return false,
+						Ordering::Less => break,
+						_ => ()
 					}
 				}
 			}

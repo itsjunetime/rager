@@ -4,17 +4,56 @@ use crate::*;
 use std::{
 	path,
 	fs,
-	sync::{Arc, RwLock}
+	sync::{Arc, RwLock},
+	convert::TryFrom,
 };
 use chrono::Datelike;
 
-pub async fn search(any: bool, user: Option<String>, when: Option<String>, term: Option<String>, view: bool) {
+pub async fn search(any: bool, terms: SearchTerms, view: bool) {
+
+	println!("Searching for logs {}...\n", dbg_str_for_terms(&terms));
+
+	let finds = match entries_with_terms(any, &terms).await {
+		Some(fs) => {
+			if fs.is_empty() {
+				println!(":( It looks like your search terms didn't turn up any results");
+				return
+			}
+
+			fs
+		},
+		None => return,
+	};
+
+	let descriptions = finds.iter().map(|e| e.selectable_description());
+
+	let mut menu = youchoose::Menu::new(descriptions);
+	let choice = menu.show();
+
+	if !choice.is_empty() {
+		let entry = &finds[choice[0]];
+
+		if view {
+			let entries = terms.term.map(|t| {
+				// safe to unwrap 'cause if term_cond is some, we've already verified the regex.
+				let rgx = regex::Regex::new(&t).unwrap();
+				files_in_entry_with_regex(&entry, &rgx)
+			});
+
+			view::view(entry, entries.unwrap_or_default());
+		} else {
+			println!("{}", entry.description());
+		}
+	}
+}
+
+pub async fn entries_with_terms(any: bool, terms: &SearchTerms) -> Option<Vec<EntryDetails>> {
 	let dir = sync_dir();
 
 	let matches: Arc<RwLock<Vec<EntryDetails>>> = Arc::new(RwLock::new(Vec::new()));
 	let date_regex = regex::Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
 
-	let day_matches = when.as_ref()
+	let day_matches = terms.when.as_ref()
 		.map(|days| days.split(',')
 			.fold(Vec::new(), |mut mtc, day| {
 				if date_regex.is_match(day) {
@@ -51,24 +90,10 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 			})
 	);
 
-	if when.is_some() && day_matches.is_none() {
+	if terms.when.is_some() && day_matches.is_none() {
 		err!("Your 'when' could not be parsed into a date. Please only pass in a day of the week or an ISO-8601 date.");
-		return
+		return None;
 	}
-
-	let mut dbg_str = "Searching for logs".to_owned();
-
-	if let Some(ref u) = user {
-		dbg_str = format!("{} by user \x1b[1m{}\x1b[0m", dbg_str, u);
-	}
-	if let Some(ref w) = when {
-		dbg_str = format!("{} from \x1b[1m{}\x1b[0m", dbg_str, w);
-	}
-	if let Some(ref t) = term {
-		dbg_str = format!("{} containing the term '\x1b[1m{}\x1b[0m'", dbg_str, t);
-	}
-
-	println!("{}...\n", dbg_str);
 
 	let days: Vec<String> = if let Ok(contents) = fs::read_dir(&dir) {
 		contents.fold(Vec::new(), |mut entries, day_res| {
@@ -92,7 +117,7 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 			entries
 		})
 	} else {
-		return;
+		return None;
 	};
 
 	let joins = days.into_iter()
@@ -101,8 +126,9 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 			dir_clone.push(iter_day);
 			let match_clone = matches.clone();
 
-			let user_cond = user.as_ref().map(|m| m.to_owned());
-			let term_cond = term.as_ref().map(|t| t.to_owned());
+			let user_cond = terms.user.as_ref().map(|m| m.to_owned());
+			let term_cond = terms.term.as_ref().map(|t| t.to_owned());
+			let os_cond = terms.os.clone();
 
 			let join = tokio::spawn(async move {
 
@@ -124,9 +150,15 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 							};
 
 							entry = entry.into_iter()
-								.filter(|e| 
+								.filter(|e|
 									!files_in_entry_with_regex(&e, &regex).is_empty()
 								)
+								.collect();
+						}
+
+						if let Some(os) = os_cond {
+							entry = entry.into_iter()
+								.filter(|e| e.os == os)
 								.collect();
 						}
 					}
@@ -143,32 +175,39 @@ pub async fn search(any: bool, user: Option<String>, when: Option<String>, term:
 
 	futures::future::join_all(joins).await;
 
-	if let Ok(finds) = matches.read() {
-		if finds.is_empty() {
-			println!(":( It looks like your search terms didn't turn up any results");
-		} else {
-			let descriptions = finds.iter().map(|e| e.selectable_description());
-
-			let mut menu = youchoose::Menu::new(descriptions);
-			let choice = menu.show();
-
-			if !choice.is_empty() {
-				let entry = &finds[choice[0]];
-
-				if view {
-					let entries = term.map(|t| {
-						// safe to unwrap 'cause if term_cond is some, we've already verified the regex.
-						let rgx = regex::Regex::new(&t).unwrap();
-						files_in_entry_with_regex(&entry, &rgx)
-					});
-
-					view::view(entry, entries.unwrap_or_default());
-				} else {
-					println!("{}", entry.description());
-				}
-			}
-		}
+	match matches.write() {
+		Ok(mut entries) => {
+			let mut new_entries = Vec::new();
+			std::mem::swap(&mut new_entries, &mut *entries);
+			return Some(new_entries)
+		},
+		_ => return None
 	};
+}
+
+pub fn dbg_str_for_terms(terms: &SearchTerms) -> String {
+	let mut dbg_str = String::new();
+
+	if let Some(ref u) = terms.user {
+		dbg_str = format!("by user \x1b[1m{}\x1b[0m", u);
+	}
+	if let Some(ref w) = terms.when {
+		dbg_str = format!("{} from \x1b[1m{}\x1b[0m", dbg_str, w);
+	}
+	if let Some(ref t) = terms.term {
+		dbg_str = format!("{} containing the term '\x1b[1m{}\x1b[0m'", dbg_str, t);
+	}
+	if let Some(ref o) = terms.os {
+		dbg_str = format!("{} with the os '\x1b[1m{}\x1b[0m'",
+			dbg_str,
+			match o {
+				EntryOS::iOS => "iOS",
+				EntryOS::Android => "Android",
+				EntryOS::Desktop => "Desktop"
+			});
+	}
+
+	dbg_str
 }
 
 fn get_entries_for_day(day: &std::path::Path) -> Option<Vec<EntryDetails>> {
@@ -214,69 +253,70 @@ fn files_in_entry_with_regex(entry: &EntryDetails, rgx: &regex::Regex) -> Vec<pa
 }
 
 pub fn get_details_of_entry(entry: &std::path::Path) -> Option<EntryDetails> {
-	if let Some(contents) = get_detail_file_of_entry(entry) {
-		let mut details = "";
-		let mut user_id = "unknown";
-		let mut os = EntryOS::iOS;
-		let mut version = "1.1.30".to_owned();
-		let mut build: Option<String> = None;
+	get_detail_file_of_entry(entry)
+		.map(|c| get_entry_details(&c, entry))
+}
 
-		let mut total_found = 0;
-		let total = 5;
+pub fn get_entry_details(contents: &str, entry: &std::path::Path) -> EntryDetails {
+	let mut details = "";
+	let mut user_id = "unknown";
+	let mut os = EntryOS::iOS;
+	let mut version = "1.1.30".to_owned();
+	let mut build: Option<String> = None;
 
-		for (idx, line) in contents.lines().enumerate() {
-			if idx == 0 {
-				details = line;
+	let mut total_found = 0;
+	let total = 5;
 
-				total_found += 1;
-			} else if line.starts_with("Application") {
+	for (idx, line) in contents.lines().enumerate() {
+		if idx == 0 {
+			details = line;
 
-				if line.contains("android") {
-					os = EntryOS::Android;
-				} else if line.contains("web") {
-					os = EntryOS::Desktop;
-				}
+			total_found += 1;
+		} else if line.starts_with("Application") {
 
-				total_found += 1;
-			} else if line.starts_with("user_id") {
-				let components: Vec<&str> = line.split(' ').collect();
-
-				if components.len() > 1 {
-					user_id = components[1];
-				}
-
-				total_found += 1;
-			} else if line.starts_with("Version") {
-				let components: Vec<&str> = line.split(' ').collect();
-
-				if components.len() > 1 {
-					version = components[1].to_owned();
-				}
-
-				total_found += 1;
-			} else if line.starts_with("build") {
-				let components: Vec<&str> = line.split(' ').collect();
-
-				if components.len() > 1 {
-					build = Some(components[1..].join(" "));
-				}
-
-				total_found += 1;
+			if line.contains("android") {
+				os = EntryOS::Android;
+			} else if line.contains("web") || line.contains("desktop") {
+				os = EntryOS::Desktop;
 			}
 
-			if total_found == total {
-				break;
+			total_found += 1;
+		} else if line.starts_with("user_id") {
+			let components: Vec<&str> = line.split(' ').collect();
+
+			if components.len() > 1 {
+				user_id = components[1];
 			}
+
+			total_found += 1;
+		} else if line.starts_with("Version") || line.starts_with("app_hash") {
+			let components: Vec<&str> = line.split(' ').collect();
+
+			if components.len() > 1 {
+				version = components[1].to_owned();
+			}
+
+			total_found += 1;
+		} else if line.starts_with("build") {
+			let components: Vec<&str> = line.split(' ').collect();
+
+			if components.len() > 1 {
+				build = Some(components[1..].join(" "));
+			}
+
+			total_found += 1;
 		}
 
-		if let Some(bd) = build {
-			version = format!("{} ({})", version, bd);
+		if total_found == total {
+			break;
 		}
-
-		return Some(EntryDetails::new(user_id.into(), os, details.into(), version, entry.to_owned()))
 	}
 
-	None
+	if let Some(bd) = build {
+		version = format!("{} ({})", version, bd);
+	}
+
+	return EntryDetails::new(user_id.into(), os, details.into(), version, entry.to_owned())
 }
 
 fn get_detail_file_of_entry(entry: &std::path::Path) -> Option<String> {
@@ -341,8 +381,34 @@ impl EntryDetails {
 	}
 }
 
+#[derive(PartialEq, Clone, Debug)]
 pub enum EntryOS {
 	iOS,
 	Android,
 	Desktop
+}
+
+impl TryFrom<&str> for EntryOS {
+	type Error = String;
+
+	fn try_from(val: &str) -> Result<Self, Self::Error> {
+		let lower = val.to_lowercase();
+
+		if lower.contains("ios") {
+			Ok(EntryOS::iOS)
+		} else if lower.contains("android") {
+			Ok(EntryOS::Android)
+		} else if lower.contains("web") || lower.contains("desktop") {
+			Ok(EntryOS::Desktop)
+		} else {
+			Err("EntryOS string must contain 'ios', 'android', 'web', or 'desktop'".to_owned())
+		}
+	}
+}
+
+pub struct SearchTerms {
+	pub user: Option<String>,
+	pub term: Option<String>,
+	pub when: Option<String>,
+	pub os: Option<EntryOS>
 }

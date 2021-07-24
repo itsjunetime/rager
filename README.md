@@ -17,3 +17,26 @@ cargo build --release
 Run `rager help` to see all of the options available to you.
 
 At time of writing, the `any` option while searching doesn't work, but this issue should be fixed soon.
+
+```
+$ rager help
+
+Rager 1.0
+Ian Welker <@janshai:beeper.com>
+
+USAGE:
+    rager [SUBCOMMAND]
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+SUBCOMMANDS:
+    desync    Clear all logs off of your device
+    help      Prints this message or the help of the given subcommand(s)
+    prune     Delete all entries that match the terms
+    search    Search through the logs currently on your device
+    sync      Download all the logs from the server that you don't currently have on your device
+    view      View a specific Entry
+
+```

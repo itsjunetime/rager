@@ -12,6 +12,7 @@ const HEX_COLOR: &str = "\x1b[33;1m";
 const NUM_COLOR: &str = "\x1b[34;1m";
 const FN_COLOR: &str = "\x1b[35;1m";
 const USER_COLOR: &str = "\x1b[36;1m";
+const ROOM_COLOR: &str = "\x1b[33;3m";
 const URL_COLOR: &str = "\x1b[31;3m";
 const RESET: &str = "\x1b[0m";
 
@@ -21,7 +22,8 @@ lazy_static! {
 	static ref HEX_REGEX: Regex = Regex::new(r"(?P<hex>0x[a-fA-F0-9]+)").unwrap();
 	static ref NUM_REGEX: Regex = Regex::new(r"(?P<bfr>([^\w]|^))(?P<num>#?\d+((\.|\-|:)\d+)*)(?P<aft>[^\w])").unwrap();
 	static ref FN_REGEX: Regex = Regex::new(r" (?P<fn>[a-z]+[A-Z][a-zA-Z]*)(?P<aft>(:| ))").unwrap();
-	static ref USER_REGEX: Regex = Regex::new(r"(?P<user>@\w+:[^\.]+\.(com|org|net))").unwrap();
+	static ref USER_REGEX: Regex = Regex::new(r"(?P<user>@[\w=]+:[^\.]+(\.[a-z]+)+)").unwrap();
+	static ref ROOM_REGEX: Regex = Regex::new(r"(?P<room>![a-zA-Z]+:[a-z]+(\.[a-z]+)+)").unwrap();
 	static ref URL_REGEX: Regex = Regex::new(r"(?P<url>(_matrix|.well-known)(/[\w%\-@:\.!]+)*)").unwrap();
 }
 
@@ -98,6 +100,7 @@ fn colorize_line(line: &str) -> String {
 	let res = NULL_REGEX.replace_all(&res, format!("{}(null){}", NULL_COLOR, RESET));
 	let res = HEX_REGEX.replace_all(&res, format!("{}$hex{}", HEX_COLOR, RESET));
 	let res = URL_REGEX.replace_all(&res, format!("{}$url{}", URL_COLOR, RESET));
+	let res = ROOM_REGEX.replace_all(&res, format!("{}$room{}", ROOM_COLOR, RESET));
 	let res = USER_REGEX.replace_all(&res, format!("{}$user{}", USER_COLOR, RESET));
 
 	res.to_string()

@@ -64,6 +64,11 @@ pub async fn sync_logs(config: config::Config) {
 		warn!("It appears you are syncing for the first time. This may take a while.\n");
 	}
 
+	if conf.filter.oses.is_some() {
+		warn!("You have a sync filter for specific OS(es). This means that sync may take significantly longer than expected, \
+			since the server will have to check the OS of every entry from the server before downloading any files.");
+	}
+
 	let list_url = format!("{}/api/listing/", conf.server);
 
 	// get the list of days to check from the server
@@ -193,21 +198,23 @@ pub async fn sync_logs(config: config::Config) {
 								Err(err) => finish!(time_state, "Could not get text for list of files at {}: {}", time_url, err),
 							};
 
-							// and iterate through the list of files (not the content of the files,
-							// just the list of them) and check if they exist on the computer.
-							for f in get_links(&files_text) {
-								let mut file_log_dir = time_log_dir.clone();
-								file_log_dir.push(f);
+							if time_conf.filter.entry_allowed(&day_time, &time_conf).await {
+								// and iterate through the list of files (not the content of the files,
+								// just the list of them) and check if they exist on the computer.
+								for f in get_links(&files_text) {
+									let mut file_log_dir = time_log_dir.clone();
+									file_log_dir.push(f);
 
-								// if they don't exist, append them to the list of files to
-								// download.
-								if !std::path::Path::new(&file_log_dir).exists() {
-									if let Ok(mut check) = time_to_check.lock() {
-										check.push(Download {
-											subdir: format!("{}{}", day_time, f),
-											state: time_state.clone(),
-											config: time_conf.clone()
-										});
+									// if they don't exist, append them to the list of files to
+									// download.
+									if !std::path::Path::new(&file_log_dir).exists() {
+										if let Ok(mut check) = time_to_check.lock() {
+											check.push(Download {
+												subdir: format!("{}{}", day_time, f),
+												state: time_state.clone(),
+												config: time_conf.clone()
+											});
+										}
 									}
 								}
 							}
@@ -293,6 +300,29 @@ pub async fn sync_logs(config: config::Config) {
 			.collect::<Vec<()>>()
 			.await;
 	};
+}
+
+pub async fn get_online_details(subdir: &str, conf: &Arc<config::Config>) -> Option<search::EntryDetails> {
+	let dir = format!("{}/api/listing/{}details.log.gz", conf.server, subdir);
+
+	let details = match req_with_auth(dir, conf).await {
+		Ok(dtl) => dtl,
+		_ => {
+			return None;
+		}
+	};
+
+	let text = match details.text().await {
+		Ok(txt) => txt,
+		_ => {
+			return None;
+		}
+	};
+
+	let mut dev_dir = sync_dir();
+	dev_dir.push(subdir);
+
+	Some(search::get_entry_details(&text, &dev_dir))
 }
 
 pub fn desync_all() {

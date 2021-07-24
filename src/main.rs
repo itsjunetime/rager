@@ -4,6 +4,7 @@ mod sync;
 mod search;
 mod config;
 mod view;
+mod prune;
 
 const ERR_PREFIX: &str = "\x1b[31;1mERROR:\x1b[0m";
 const WARN_PREFIX: &str = "\x1b[33;1mWARNING:\x1b[0m";
@@ -56,6 +57,11 @@ async fn main() {
 				.long("term")
 				.help("Search for logs containing a specific term (rust-flavored regex supported)")
 				.takes_value(true))
+			.arg(Arg::with_name("os")
+				.short("o")
+				.long("os")
+				.help("Search for logs from a specific OS (either 'ios', 'android', or 'desktop')")
+				.takes_value(true))
 			.arg(Arg::with_name("any")
 				.short("a")
 				.long("any")
@@ -73,6 +79,28 @@ async fn main() {
 				.required(true)
 				.help("The entry (e.g. '2021-07-08/161300') to view the logs for")
 				.takes_value(true)))
+		.subcommand(App::new("prune")
+			.about("Delete all entries that match the terms")
+			.arg(Arg::with_name("user")
+				.short("u")
+				.long("user")
+				.help("Delete logs from a specific user")
+				.takes_value(true))
+			.arg(Arg::with_name("when")
+				.short("w")
+				.long("when")
+				.help("Delete logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
+				.takes_value(true))
+			.arg(Arg::with_name("term")
+				.short("t")
+				.long("term")
+				.help("Delete logs containing a specific term (rust-flavored regex supported)")
+				.takes_value(true))
+			.arg(Arg::with_name("os")
+				.short("o")
+				.long("os")
+				.help("Delete logs from a specific OS (either 'ios', 'android', or 'desktop')")
+				.takes_value(true)))
 		.get_matches();
 
 	if let Some(args) = matches.subcommand_matches("sync") {
@@ -87,7 +115,7 @@ async fn main() {
 		if let Some(threads) = args.value_of("threads") {
 			match threads.parse() {
 				Ok(val) => config.threads = val,
-				Err(_) => {
+				_ => {
 					err!("The 'threads' argument must be passed in as an integer");
 					return;
 				}
@@ -100,18 +128,18 @@ async fn main() {
 
 		sync::desync_all()
 
-	} else if let Some(terms) = matches.subcommand_matches("search") {
-		let any = terms.is_present("any");
-		let view = !terms.is_present("preview");
-		let when = terms.value_of("when").map(|w| w.to_owned());
-		let user = terms.value_of("user").map(|u| u.to_owned());
-		let term = terms.value_of("term").map(|t| t.to_owned());
+	} else if let Some(args) = matches.subcommand_matches("search") {
+		let any = args.is_present("any");
+		let view = !args.is_present("preview");
 
-		if when.is_none() && user.is_none() && term.is_none() {
-			err!("At least one condition must be input to search");
+		let terms = get_terms_from_matches(&args);
+
+		if terms.when.is_none() && terms.user.is_none() &&
+			terms.term.is_none() && terms.os.is_none() {
+			err!("You must enter some terms to search entries.");
 		}
 
-		search::search(any, user, when, term, view).await;
+		search::search(any, terms, view).await;
 	} else if let Some(args) = matches.subcommand_matches("view") {
 		// safe to unwrap 'cause Clap would catch if it wasn't included
 		let entry = args.value_of("entry").unwrap();
@@ -123,6 +151,39 @@ async fn main() {
 			Some(ent) => view::view(&ent, Vec::new()),
 			None => err!("There appears to be no entry at {:?}", dir),
 		}
+	} else if let Some(args) = matches.subcommand_matches("prune") {
+		let terms = get_terms_from_matches(&args);
+
+		if terms.when.is_none() && terms.user.is_none() &&
+			terms.term.is_none() && terms.os.is_none() {
+			err!("You must enter some terms to prune entries. If you would like to delete all, use the \x1b[1mdesync\x1b[0m command");
+		}
+
+		prune::remove_with_terms(terms).await;
+	}
+}
+
+pub fn get_terms_from_matches(terms: &clap::ArgMatches) -> search::SearchTerms {
+	let when = terms.value_of("when").map(|w| w.to_owned());
+	let user = terms.value_of("user").map(|u| u.to_owned());
+	let term = terms.value_of("term").map(|t| t.to_owned());
+	let os = terms.value_of("os").map(|o|
+		match o {
+			"ios" => search::EntryOS::iOS,
+			"android" => search::EntryOS::Android,
+			"desktop" => search::EntryOS::Desktop,
+			x => {
+				err!("Did not recognize os '{}' (must be 'ios, 'android', or 'desktop')", x);
+				std::process::exit(1);
+			}
+		}
+	);
+
+	search::SearchTerms {
+		when,
+		user,
+		term,
+		os
 	}
 }
 

@@ -5,7 +5,7 @@ use std::{
 };
 use futures::StreamExt;
 
-pub async fn sync_logs(config: config::Config) {
+pub async fn sync_logs(conf: Arc<config::Config>) -> bool {
 
 	// normally I opt for a RwLock over a mutex but both this and to_check basically only ever
 	// write, (state never reads, to_check only reads once and it's after everyone finishes writing
@@ -26,7 +26,6 @@ pub async fn sync_logs(config: config::Config) {
 	// need to download, we pass it into the futures::sream::iter func below and download all of
 	// them through tokio.
 	let to_check: Arc<Mutex<Vec<Download>>> = Arc::new(Mutex::new(Vec::new()));
-	let conf = Arc::new(config);
 
 	// a special macro so that we can remove the progress bar, print a line, and have the progress
 	// bar reappear underneat the line that was just printed
@@ -47,8 +46,6 @@ pub async fn sync_logs(config: config::Config) {
 		}
 	}
 
-	println!("Starting sync with server...");
-
 	let log_dir = sync_dir();
 
 	let mut first_time = !log_dir.exists();
@@ -64,7 +61,7 @@ pub async fn sync_logs(config: config::Config) {
 		warn!("It appears you are syncing for the first time. This may take a while.\n");
 	}
 
-	if conf.filter.oses.is_some() {
+	if conf.filter.oses.is_some() && !conf.beeper_hacks {
 		warn!("You have a sync filter for specific OS(es). This means that sync may take significantly longer than expected, \
 			since the server will have to check the OS of every entry from the server before downloading any files.");
 	}
@@ -76,7 +73,7 @@ pub async fn sync_logs(config: config::Config) {
 		Ok(d) => d,
 		Err(err) => {
 			err!("Couldn't get list of days to check from server: {}", err);
-			return;
+			return false;
 		}
 	};
 
@@ -84,7 +81,7 @@ pub async fn sync_logs(config: config::Config) {
 		Ok(dt) => dt,
 		Err(err) => {
 			err!("Server's list of days contains unparseable text: {}", err);
-			return;
+			return false;
 		}
 	};
 
@@ -244,7 +241,7 @@ pub async fn sync_logs(config: config::Config) {
 	if let Ok(downloads) = to_check.lock() {
 		if downloads.is_empty() {
 			println!("\n✅ You're already all synced up!");
-			return;
+			return true;
 		}
 
 		println!("\nStarting file downloads...");
@@ -253,22 +250,30 @@ pub async fn sync_logs(config: config::Config) {
 			state.total = downloads.len();
 		}
 
+		let got_err = Arc::new(Mutex::new(false));
+
 		// iterate through all the files that we need to download and download them.
 		futures::stream::iter(
 			downloads.iter().map(|down| {
-				macro_rules! finish{
-					() => {
-						if let Ok(mut state) = down.state.lock() {
-							state.finished_one();
-						}
-						return;
+				macro_rules! finish{ () => {
+					if let Ok(mut state) = down.state.lock() {
+						state.finished_one();
 					}
-				}
+					return;
+				}}
 
 				// get the url to request and the directory which the file will be written to.
 				let down_url = format!("{}{}", list_url, down.subdir);
 				let mut down_dir = log_dir.clone();
 				down_dir.push(&down.subdir);
+
+				let err_clone = got_err.clone();
+
+				macro_rules! set_err{ () => {
+					if let Ok(mut f) = err_clone.lock() {
+						*f = true;
+					}
+				}}
 
 				// create an async block, which will be what is executed on the `await`
 				async move {
@@ -281,16 +286,23 @@ pub async fn sync_logs(config: config::Config) {
 						Ok(req) => req,
 						Err(err) => {
 							st_err!(down.state, "Failed to download file {}: {}", down.subdir, err);
+							set_err!();
 							finish!();
 						}
 					};
 
 					match request.text().await {
 						Ok(text) => match fs::write(&down_dir, text.as_bytes()) {
-							Err(err) => st_err!(down.state, "Couldn't write file to {:?}: {}", down_dir, err),
+							Err(err) => {
+								st_err!(down.state, "Couldn't write file to {:?}: {}", down_dir, err);
+								set_err!();
+							},
 							Ok(_) => st_log!(down.state, "✅ Saved file \x1b[32;1m{}\x1b[0m", down.subdir),
 						}
-						Err(err) => st_err!(down.state, "Failed to get text from downloaded file {}: {}", down.subdir, err),
+						Err(err) => {
+							st_err!(down.state, "Failed to get text from downloaded file {}: {}", down.subdir, err);
+							set_err!();
+						}
 					}
 
 					finish!();
@@ -299,7 +311,13 @@ pub async fn sync_logs(config: config::Config) {
 		).buffer_unordered(conf.threads)
 			.collect::<Vec<()>>()
 			.await;
+
+		if let Ok(f) = got_err.lock() {
+			return !*f;
+		};
 	};
+
+	false
 }
 
 pub async fn get_online_details(subdir: &str, conf: &Arc<config::Config>) -> Option<search::EntryDetails> {
@@ -307,22 +325,44 @@ pub async fn get_online_details(subdir: &str, conf: &Arc<config::Config>) -> Opt
 
 	let details = match req_with_auth(dir, conf).await {
 		Ok(dtl) => dtl,
-		_ => {
-			return None;
-		}
+		_ => return None,
 	};
 
 	let text = match details.text().await {
 		Ok(txt) => txt,
-		_ => {
-			return None;
-		}
+		_ => return None,
 	};
 
 	let mut dev_dir = sync_dir();
 	dev_dir.push(subdir);
 
 	Some(search::get_entry_details(&text, &dev_dir))
+}
+
+pub async fn get_hacky_os(subdir: &str, conf: &Arc<config::Config>) -> Option<search::EntryOS> {
+	let url = format!("{}/api/listing/{}", conf.server, subdir);
+
+	let details = match req_with_auth(url, conf).await {
+		Ok(dtl) => dtl,
+		_ => return None,
+	};
+
+	let text = match details.text().await {
+		Ok(txt) => txt,
+		_ => return None,
+	};
+
+	let links = get_links(&text);
+
+	if links.len() == 1 && links[0] == "details.log.gz" {
+		Some(search::EntryOS::Desktop)
+	} else if links.iter().position(|l| *l == "console.log.gz").is_some() {
+		Some(search::EntryOS::iOS)
+	} else if links.iter().position(|l| *l == "logs-0000.log.gz").is_some() {
+		Some(search::EntryOS::Android)
+	} else {
+		None
+	}
 }
 
 pub fn desync_all() {

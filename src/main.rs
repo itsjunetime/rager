@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use std::sync::Arc;
 
 mod sync;
 mod search;
@@ -122,7 +123,22 @@ async fn main() {
 			}
 		}
 
-		sync::sync_logs(config).await
+		println!("Starting sync with server...");
+
+		let limit = config.sync_retry_limit;
+		let conf_arc = Arc::new(config);
+
+		let mut retried: usize = 0;
+		let mut success = sync::sync_logs(conf_arc.clone()).await;
+
+		if let Some(lim) = limit {
+			while (!success && retried < lim) || lim == 0 {
+				println!("\nIt looks like some files failed to download. Syncing again...");
+
+				retried += 1;
+				success = sync::sync_logs(conf_arc.clone()).await;
+			}
+		}
 
 	} else if matches.subcommand_matches("desync").is_some() {
 

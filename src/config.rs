@@ -15,7 +15,9 @@ pub struct Config {
 	pub username: String,
 	pub password: String,
 	pub threads: usize,
-	pub filter: SyncFilter
+	pub filter: SyncFilter,
+	pub beeper_hacks: bool,
+	pub sync_retry_limit: Option<usize>
 }
 
 impl Config {
@@ -27,8 +29,8 @@ impl Config {
 				Ok(val) => if let Some(table) = val.as_table() {
 
 					macro_rules! get_val{
-						($key:expr) => {
-							match table.get($key).map(|v| v.as_str()) {
+						($key:expr, $fn:ident) => {
+							match table.get($key).map(|v| v.$fn()) {
 								Some(Some(val)) => val,
 								_ => {
 									err!("Your config file does not include the field '{}'", $key);
@@ -38,15 +40,14 @@ impl Config {
 						}
 					}
 
-					let server = get_val!("server");
-					let password = get_val!("password");
-					let username = get_val!("username");
-					let threads = match table["threads"].as_integer() {
-						Some(val) => val as usize,
-						None => {
-							err!("Your config file must include an integer with the key 'threads'");
-							return None;
-						}
+					let server = get_val!("server", as_str).to_string();
+					let password = get_val!("password", as_str).to_string();
+					let username = get_val!("username", as_str).to_string();
+					let threads = get_val!("threads", as_integer) as usize;
+
+					let sync_retry_limit = match table.get("sync-retry-limit").map(|s| s.as_integer()) {
+						Some(Some(i)) => Some(i as usize),
+						_ => None
 					};
 
 					macro_rules! some_or_none_str{
@@ -90,13 +91,16 @@ impl Config {
 					let after = sync_str_to_arr!("sync-after");
 
 					let ok_unsure = table["ok-unsure"].as_bool().unwrap_or(true);
+					let beeper_hacks = table["beeper-hacks"].as_bool().unwrap_or(false);
 
 					return Some(Config {
 						filter: SyncFilter { oses, before, after, ok_unsure },
-						server: server.to_string(),
-						password: password.to_string(),
-						username: username.to_string(),
-						threads
+						server,
+						password,
+						username,
+						threads,
+						beeper_hacks,
+						sync_retry_limit,
 					})
 				},
 				Err(err) => err!("Config file at {} is not proper TOML format: {}", conf, err),
@@ -123,7 +127,7 @@ pub struct SyncFilter {
 	pub oses: Option<Vec<EntryOS>>,
 	pub before: Option<[u16; 3]>,
 	pub after: Option<[u16; 3]>,
-	pub ok_unsure: bool
+	pub ok_unsure: bool,
 }
 
 impl SyncFilter {
@@ -198,12 +202,18 @@ impl SyncFilter {
 					return false;
 				}
 			} else {
-				// if we don't, get the details from the server and check there.
-				match sync::get_online_details(day_time, conf).await {
-					Some(entry) => if !oses.contains(&entry.os) {
-						return false;
-					},
-					None => return self.ok_unsure
+				let os = if conf.beeper_hacks {
+					match sync::get_hacky_os(day_time, conf).await {
+						Some(os) => Some(os),
+						None => sync::get_online_details(day_time, conf).await.map(|d| d.os),
+					}
+				} else {
+					sync::get_online_details(day_time, conf).await.map(|d| d.os)
+				};
+
+				return match os {
+					Some(o) => oses.contains(&o),
+					None => self.ok_unsure
 				}
 			}
 		}

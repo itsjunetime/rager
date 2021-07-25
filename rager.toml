@@ -1,4 +1,4 @@
-# The base URL of the rageshake server. This key/value is required.
+# The base URL of the rageshake server, WITHOUT the `api/listing` suffix. This key/value is required.
 server = "https://rageshake.server.com"
 
 # The username and password for basic HTTP Auth with the rageshake server. These key/values are required.
@@ -24,5 +24,24 @@ sync-before = "2021-07-01"
 sync-after = "2021-07-20"
 
 # Whether or not the server should download an entry anyways if it can't determine whether it fits the sync conditions above
-# This key/value is not required, and will not slow down the syncing.
+# This key/value is not required, will not slow down the syncing, and defaults to `true` when not included.
 ok-unsure = true
+
+# Whether or not to use some slightly hacky methods to determine the OS of each entry when determining whether or not to sync them.
+#
+# When this is set to `false`, the server downloads the `details.log.gz` file for each entry which it needs the OS of and
+# looks for the `Application: ` key in that file to determine the os. Obviously, this can cause syncing to be very slow on slower internet connections.
+#
+# When this is set to `true`, however, it determines the OS of each entry from the list of files contained in the entry.
+# If there is one file, and it is called `details.log.gz`, the OS is determined to be `desktop`.
+# If there is a file called `logs-0000.log.gz` in the entry, the OS is `android`.
+# If there is a file called `console.log.gz` in the entry, the OS is `ios`.
+# If none of these are true, if downloads the `details.log.gz` file anyways and parses that just like normal.
+#
+# This key/value is not required, and will default to `false` if not included.
+beeper-hacks = false
+
+# How many times to retry a sync where one or more files failed to download.
+# If this key/value is not included, rager never retries a sync. If it is included and set to 0,
+# rager will continue resyncing until all files are downloaded. Otherwise, it only retries as many times as is specified.
+sync-retry-limit = 3

@@ -90,8 +90,8 @@ impl Config {
 					let before = sync_str_to_arr!("sync-before");
 					let after = sync_str_to_arr!("sync-after");
 
-					let ok_unsure = table["ok-unsure"].as_bool().unwrap_or(true);
-					let beeper_hacks = table["beeper-hacks"].as_bool().unwrap_or(false);
+					let ok_unsure = table.get("ok-unsure").map(|v| v.as_bool().unwrap_or(true)).unwrap_or(true);
+					let beeper_hacks = table.get("beeper-hacks").map(|v| v.as_bool().unwrap_or(false)).unwrap_or(false);
 
 					return Some(Config {
 						filter: SyncFilter { oses, before, after, ok_unsure },

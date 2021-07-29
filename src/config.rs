@@ -132,7 +132,9 @@ pub struct SyncFilter {
 
 impl SyncFilter {
 	pub fn string_to_arr(input: &str) -> Option<[u16; 3]> {
-		let splits: Vec<&str> = input.split('-').collect();
+		// remove the trailing slash in case we're passing in a directory
+		let fixed = input.replace("/", "");
+		let splits: Vec<&str> = fixed.split('-').collect();
 
 		if splits.len() != 3 {
 			return None;
@@ -162,31 +164,11 @@ impl SyncFilter {
 				.split('/')
 				.collect::<Vec<&str>>()[0];
 
-			let splits = match Self::string_to_arr(name) {
-				Some(sp) => sp,
-				_ => return self.ok_unsure
-			};
-
-			if let Some(before) = self.before {
-				for (b, s) in before.iter().zip(&splits) {
-					// if the `before` year is after the date, it's bad (cause it has to be before
-					// 'before'), and if it's before, then we're good.
-					match b.cmp(s) {
-						Ordering::Greater => break,
-						Ordering::Less => return false,
-						_ => ()
-					}
-				}
-			}
-
-			if let Some(after) = self.after {
-				for (a, s) in after.iter().zip(&splits) {
-					match a.cmp(s) {
-						Ordering::Greater => return false,
-						Ordering::Less => break,
-						_ => ()
-					}
-				}
+			match self.day_allowed(name) {
+				Some(allowed) => if !allowed {
+					return false
+				},
+				None => return self.ok_unsure
 			}
 		}
 
@@ -219,5 +201,36 @@ impl SyncFilter {
 		}
 
 		true
+	}
+
+	pub fn day_allowed(&self, day: &str) -> Option<bool> {
+		let splits = match Self::string_to_arr(day) {
+			Some(sp) => sp,
+			_ => return None
+		};
+
+		if let Some(before) = self.before {
+			for (b, s) in before.iter().zip(&splits) {
+				// if the `before` year is after the date, it's bad (cause it has to be before
+				// 'before'), and if it's before, then we're good.
+				match b.cmp(s) {
+					Ordering::Greater => break,
+					Ordering::Less => return Some(false),
+					_ => ()
+				}
+			}
+		}
+
+		if let Some(after) = self.after {
+			for (a, s) in after.iter().zip(&splits) {
+				match a.cmp(s) {
+					Ordering::Greater => return Some(false),
+					Ordering::Less => break,
+					_ => ()
+				}
+			}
+		}
+
+		Some(true)
 	}
 }

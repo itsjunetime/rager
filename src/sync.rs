@@ -108,6 +108,21 @@ pub async fn sync_logs(conf: Arc<config::Config>) -> bool {
 			// spawn a new thread for each entry in each day, since we have to check all the files
 			// in each entry
 			tokio::spawn(async move {
+
+				// before querying to get the list of entries for a specific day, just
+				// make sure the day itself is allowed. Optimizations.
+				if let Some(allowed) = day_conf.filter.day_allowed(&day) {
+					if !allowed {
+						if let Ok(mut state) = day_state.lock() {
+							if idx == day_len {
+								state.finalized_size = true;
+							}
+						}
+
+						return;
+					}
+				}
+
 				let times = match req_with_auth(&day_url, &*day_conf).await {
 					Ok(tm) => tm,
 					Err(err) => {

@@ -94,7 +94,7 @@ pub fn view(entry: &EntryDetails, matches: Vec<std::path::PathBuf>) {
 }
 
 fn colorize_line(line: &str) -> String {
-	let res = NUM_REGEX.replace_all(&line, format!("$bfr{}$num{}$aft", NUM_COLOR, RESET));
+	let res = NUM_REGEX.replace_all(line, format!("$bfr{}$num{}$aft", NUM_COLOR, RESET));
 	let res = NS_REGEX.replace_all(&res, format!("{}$id{}", NS_COLOR, RESET));
 	let res = FN_REGEX.replace_all(&res, format!(" {}$fn{}$aft", FN_COLOR, RESET));
 	let res = NULL_REGEX.replace_all(&res, format!("{}(null){}", NULL_COLOR, RESET));

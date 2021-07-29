@@ -1,7 +1,14 @@
 use crate::*;
 use std::{
 	fs,
-	sync::{Arc, Mutex},
+	sync::{
+		Arc,
+		Mutex,
+		atomic::{
+			AtomicBool,
+			Ordering
+		}
+	},
 };
 use futures::StreamExt;
 
@@ -265,7 +272,7 @@ pub async fn sync_logs(conf: Arc<config::Config>) -> bool {
 			state.total = downloads.len();
 		}
 
-		let got_err = Arc::new(Mutex::new(false));
+		let got_err = Arc::new(AtomicBool::new(false));
 
 		// iterate through all the files that we need to download and download them.
 		futures::stream::iter(
@@ -285,9 +292,8 @@ pub async fn sync_logs(conf: Arc<config::Config>) -> bool {
 				let err_clone = got_err.clone();
 
 				macro_rules! set_err{ () => {
-					if let Ok(mut f) = err_clone.lock() {
-						*f = true;
-					}
+					let f = err_clone.load(Ordering::Relaxed);
+					err_clone.store(!f, Ordering::Relaxed)
 				}}
 
 				// create an async block, which will be what is executed on the `await`
@@ -327,9 +333,7 @@ pub async fn sync_logs(conf: Arc<config::Config>) -> bool {
 			.collect::<Vec<()>>()
 			.await;
 
-		if let Ok(f) = got_err.lock() {
-			return !*f;
-		};
+		return !got_err.load(Ordering::Relaxed);
 	};
 
 	false
@@ -371,9 +375,9 @@ pub async fn get_hacky_os(subdir: &str, conf: &Arc<config::Config>) -> Option<se
 
 	if links.len() == 1 && links[0] == "details.log.gz" {
 		Some(search::EntryOS::Desktop)
-	} else if links.iter().position(|l| *l == "console.log.gz").is_some() {
+	} else if links.iter().any(|l| *l == "console.log.gz") {
 		Some(search::EntryOS::iOS)
-	} else if links.iter().position(|l| *l == "logs-0000.log.gz").is_some() {
+	} else if links.iter().any(|l| *l == "logs-0000.log.gz") {
 		Some(search::EntryOS::Android)
 	} else {
 		None

@@ -37,7 +37,7 @@ pub async fn search(any: bool, terms: SearchTerms, view: bool) {
 			let entries = terms.term.map(|t| {
 				// safe to unwrap 'cause if term_cond is some, we've already verified the regex.
 				let rgx = regex::Regex::new(&t).unwrap();
-				files_in_entry_with_regex(&entry, &rgx)
+				files_in_entry_with_regex(entry, &rgx)
 			});
 
 			view::view(entry, entries.unwrap_or_default());
@@ -151,7 +151,7 @@ pub async fn entries_with_terms(any: bool, terms: &SearchTerms) -> Option<Vec<En
 
 							entry = entry.into_iter()
 								.filter(|e|
-									!files_in_entry_with_regex(&e, &regex).is_empty()
+									!files_in_entry_with_regex(e, &regex).is_empty()
 								)
 								.collect();
 						}

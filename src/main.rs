@@ -148,7 +148,7 @@ async fn main() {
 		let any = args.is_present("any");
 		let view = !args.is_present("preview");
 
-		let terms = get_terms_from_matches(&args);
+		let terms = get_terms_from_matches(args);
 
 		if terms.when.is_none() && terms.user.is_none() &&
 			terms.term.is_none() && terms.os.is_none() {
@@ -168,7 +168,7 @@ async fn main() {
 			None => err!("There appears to be no entry at {:?}", dir),
 		}
 	} else if let Some(args) = matches.subcommand_matches("prune") {
-		let terms = get_terms_from_matches(&args);
+		let terms = get_terms_from_matches(args);
 
 		if terms.when.is_none() && terms.user.is_none() &&
 			terms.term.is_none() && terms.os.is_none() {

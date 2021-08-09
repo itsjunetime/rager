@@ -1,11 +1,12 @@
 use clap::{App, Arg};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 mod sync;
 mod search;
 mod config;
 mod view;
 mod prune;
+mod errors;
 
 const ERR_PREFIX: &str = "\x1b[31;1mERROR:\x1b[0m";
 const WARN_PREFIX: &str = "\x1b[33;1mWARNING:\x1b[0m";
@@ -125,18 +126,50 @@ async fn main() {
 
 		println!("Starting sync with server...");
 
-		let limit = config.sync_retry_limit;
+		let lim = config.sync_retry_limit.map(|l| l as i8).unwrap_or(-1);
 		let conf_arc = Arc::new(config);
 
-		let mut retried: usize = 0;
-		let mut success = sync::sync_logs(conf_arc.clone()).await;
+		// normally I opt for a RwLock over a mutex but both this and to_check basically only ever
+		// write, (state never reads, to_check only reads once and it's after everyone finishes writing
+		// to it), so there's really no reason to choose RwLock over mutex here.
+		let state = Arc::new(Mutex::new(sync::SyncTracker {
+			prefix: "Checking Directories:".to_owned(),
+			started: 0,
+			done: 0,
+			total: 0,
+			finalized_size: false,
+		}));
 
-		if let Some(lim) = limit {
-			while (!success && retried < lim) || lim == 0 {
-				println!("\nIt looks like some files failed to download. Syncing again...");
+		let mut retried: i8 = 0;
+		
+		let mut result = sync::sync_logs(&conf_arc, &state).await;
 
-				retried += 1;
-				success = sync::sync_logs(conf_arc.clone()).await;
+		while retried < lim || lim == 0 {
+			match result {
+				Err(err) => {
+					retried += 1;
+
+
+					match err {
+						errors::SyncErrors::ListingFailed => {
+							if let Ok(mut state) = state.lock() {
+								state.reset("Checking directories".to_owned());
+							}
+
+							println!("\nRager was unable to get a full list of directories; trying again...");
+							result = sync::sync_logs(&conf_arc, &state).await;
+						},
+						errors::SyncErrors::FilesDownloadFailed(files) => {
+							if let Ok(mut state) = state.lock() {
+								state.reset("Downloaded:".to_owned());
+							}
+
+							println!("\nSome files failed to download. Retrying them...");
+							result = sync::download_files(files, &state, &conf_arc).await;
+						},
+					}
+				},
+				_ => break,
 			}
 		}
 

@@ -1,6 +1,9 @@
 use crate::{
 	*,
-	errors::SyncErrors::*
+	config::Config,
+	filter::Filter,
+	errors::SyncErrors::*,
+	entry::Entry
 };
 use std::{
 	fs,
@@ -36,7 +39,9 @@ macro_rules! st_err{
 
 // returns a vector of failed files, or none if all downloaded successfully.
 // if it fails on something other than downloading a file, it will return an empty vector
-pub async fn sync_logs(conf: &Arc<config::Config>, state: &Arc<Mutex<SyncTracker>>) -> Result<(), errors::SyncErrors> {
+pub async fn sync_logs(
+	filter: &Arc<Filter>, conf: &Arc<Config>, state: &Arc<Mutex<SyncTracker>>
+) -> Result<(), errors::SyncErrors> {
 
 	// to_check is vec of all the files that'll need to be downloaded this time. We iterate through
 	// all the entries on the server, check if that file exists on the computer, and if it doesn't,
@@ -62,9 +67,10 @@ pub async fn sync_logs(conf: &Arc<config::Config>, state: &Arc<Mutex<SyncTracker
 		warn!("It appears you are syncing for the first time. This may take a while.\n");
 	}
 
-	if conf.filter.oses.is_some() && !conf.beeper_hacks {
-		warn!("You have a sync filter for specific OS(es). This means that sync may take significantly longer than expected, \
-			since the server will have to check the OS of every entry from the server before downloading any files.");
+	if filter.oses.is_some() && !conf.beeper_hacks {
+		warn!("You have a sync filter for specific OS(es). This means that sync may take significantly longer \
+			than expected, since the server will have to check the OS of every entry from the server \
+			before downloading any files.");
 	}
 
 	let list_url = format!("{}/api/listing/", conf.server);
@@ -113,25 +119,24 @@ pub async fn sync_logs(conf: &Arc<config::Config>, state: &Arc<Mutex<SyncTracker
 			let day_conf = conf.clone();
 			let day_to_check = to_check.clone();
 			let day_fail = failed_a_listing.clone();
+			let day_filter = filter.clone();
 
 			let day_url = format!("{}{}", list_url, day);
 
-			// spawn a new thread for each entry in each day, since we have to check all the files
-			// in each entry
+			// spawn a new thread for each entry in each day, since we have to
+			// check all the files in each entry
 			tokio::spawn(async move {
 
 				// before querying to get the list of entries for a specific day, just
 				// make sure the day itself is allowed. Optimizations.
-				if let Some(allowed) = day_conf.filter.day_allowed(&day) {
-					if !allowed {
-						if let Ok(mut state) = day_state.lock() {
-							if idx == day_len {
-								state.finalized_size = true;
-							}
+				if !day_filter.day_ok(&day) {
+					if let Ok(mut state) = day_state.lock() {
+						if idx == day_len {
+							state.finalized_size = true;
 						}
-
-						return;
 					}
+
+					return;
 				}
 
 				let times = match req_with_auth(&day_url, &*day_conf).await {
@@ -181,13 +186,15 @@ pub async fn sync_logs(conf: &Arc<config::Config>, state: &Arc<Mutex<SyncTracker
 						let time = t.to_owned();
 						time_log_dir.push(t);
 
+						let day = day.to_owned();
+
 						let time_state = day_state.clone();
 						let time_conf = day_conf.clone();
 						let time_to_check = day_to_check.clone();
 						let time_fail = day_fail.clone();
+						let time_filter = day_filter.clone();
 
 						let time_url = format!("{}{}", day_url, time);
-						let day_time = format!("{}{}", day, time);
 
 						if let Ok(mut state) = day_state.lock() {
 							state.add_one_started();
@@ -211,10 +218,6 @@ pub async fn sync_logs(conf: &Arc<config::Config>, state: &Arc<Mutex<SyncTracker
 								}
 							}
 
-							if let Err(err) = fs::create_dir_all(&time_log_dir) {
-								finish!(time_state, "Could not create directory {:?}: {}", time_log_dir, err);
-							}
-
 							let files = match req_with_auth(&time_url, &*time_conf).await {
 								Ok(f) => f,
 								Err(err) => finish!(time_state, "Could not retrieve list of files at {}: {}", time_url, err),
@@ -225,7 +228,21 @@ pub async fn sync_logs(conf: &Arc<config::Config>, state: &Arc<Mutex<SyncTracker
 								Err(err) => finish!(time_state, "Could not get text for list of files at {}: {}", time_url, err),
 							};
 
-							if time_conf.filter.entry_allowed(&day_time, &time_conf).await {
+							let mut entry = Entry::new(day, time, time_conf.clone());
+
+							let entry_ok = match time_filter.entry_ok(&mut entry, true).await {
+								Ok(ok) => ok,
+								_ => {
+									st_log!(time_state, "entry {:?} is deemed bad", entry.date_time());
+									return
+								}
+							};
+
+							if entry_ok {
+								if let Err(err) = fs::create_dir_all(&time_log_dir) {
+									finish!(time_state, "Could not create directory {:?}: {}", time_log_dir, err);
+								}
+
 								// and iterate through the list of files (not the content of the files,
 								// just the list of them) and check if they exist on the computer.
 								for f in get_links(&files_text) {
@@ -237,7 +254,7 @@ pub async fn sync_logs(conf: &Arc<config::Config>, state: &Arc<Mutex<SyncTracker
 									if !std::path::Path::new(&file_log_dir).exists() {
 										if let Ok(mut check) = time_to_check.lock() {
 											check.push(Download {
-												subdir: format!("{}{}", day_time, f),
+												subdir: format!("{}/{}", entry.date_time(), f),
 												state: time_state.clone(),
 												config: time_conf.clone()
 											});
@@ -371,51 +388,6 @@ pub async fn download_files(files: Vec<Download>, state: &Arc<Mutex<SyncTracker>
 		}
 		_ => Ok(())
 	};
-}
-
-pub async fn get_online_details(subdir: &str, conf: &Arc<config::Config>) -> Option<search::EntryDetails> {
-	let dir = format!("{}/api/listing/{}details.log.gz", conf.server, subdir);
-
-	let details = match req_with_auth(dir, conf).await {
-		Ok(dtl) => dtl,
-		_ => return None,
-	};
-
-	let text = match details.text().await {
-		Ok(txt) => txt,
-		_ => return None,
-	};
-
-	let mut dev_dir = sync_dir();
-	dev_dir.push(subdir);
-
-	Some(search::get_entry_details(&text, &dev_dir))
-}
-
-pub async fn get_hacky_os(subdir: &str, conf: &Arc<config::Config>) -> Option<search::EntryOS> {
-	let url = format!("{}/api/listing/{}", conf.server, subdir);
-
-	let details = match req_with_auth(url, conf).await {
-		Ok(dtl) => dtl,
-		_ => return None,
-	};
-
-	let text = match details.text().await {
-		Ok(txt) => txt,
-		_ => return None,
-	};
-
-	let links = get_links(&text);
-
-	if links.len() == 1 && links[0] == "details.log.gz" {
-		Some(search::EntryOS::Desktop)
-	} else if links.iter().any(|l| *l == "console.log.gz") {
-		Some(search::EntryOS::iOS)
-	} else if links.iter().any(|l| *l == "logs-0000.log.gz") {
-		Some(search::EntryOS::Android)
-	} else {
-		None
-	}
 }
 
 pub fn desync_all() {

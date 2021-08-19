@@ -1,7 +1,8 @@
 use std::fs;
 use crate::{
-	search::EntryDetails,
-	err
+	sync_dir,
+	entry::Entry,
+	errors::FilterErrors
 };
 use regex::Regex;
 use lazy_static::lazy_static;
@@ -27,36 +28,36 @@ lazy_static! {
 	static ref URL_REGEX: Regex = Regex::new(r"(?P<url>(_matrix|.well-known)(/[\w%\-@:\.!]+)*)").unwrap();
 }
 
-pub fn view(entry: &EntryDetails, matches: Vec<std::path::PathBuf>) {
-	let logs = if let Ok(contents) = fs::read_dir(&entry.path) {
-		contents.fold(Vec::new(), |mut entries, log_res| {
-			if let Ok(log) = log_res {
-				entries.push(log.path());
-			}
-
-			entries
-		})
-	} else {
-		println!("Huh. Looks like there's no logs for this entry");
-		return;
-	};
-
-	if logs.is_empty() {
-		println!("Huh. Looks like there's no logs for this entry.");
-		return;
+pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterErrors> {
+	if !entry.is_downloaded() {
+		return Err(FilterErrors::ViewingBeforeDownloading);
 	}
 
-	let string_paths = logs.iter()
-		.fold(Vec::new(), | mut files, log | {
-			if let Some(ref_str) = log.to_str() {
-				let log_str = if matches.contains(log) {
-					format!("{} (matches)", ref_str)
-				} else {
-					ref_str.to_owned()
-				};
+	if entry.files.is_none() {
+		entry.retrieve_file_list(false).await
+			.map_err(|_| FilterErrors::FileRetrievalFailed)?;
+	}
 
-				files.push(log_str);
-			}
+	macro_rules! p_and_ok { () => {{
+		println!("Huh. Looks like there's no logs for this entry.");
+		return Ok(());
+	}}}
+
+	let files = match &entry.files {
+		None => p_and_ok!(),
+		Some(files) if files.is_empty() => p_and_ok!(),
+		Some(files) => files
+	};
+
+	let string_paths = files.iter()
+		.fold(Vec::new(), | mut files, log | {
+			let log_str = if matches.contains(&log) {
+				format!("{} (matches)", log)
+			} else {
+				log.to_owned()
+			};
+
+			files.push(log_str);
 			files
 		});
 
@@ -64,33 +65,38 @@ pub fn view(entry: &EntryDetails, matches: Vec<std::path::PathBuf>) {
 	let choice = menu.show();
 
 	if !choice.is_empty() {
-		let log = &logs[choice[0]];
+		let log = &files[choice[0]];
 
-		println!("Loading in log at {:?}...", log);
+		let mut stored_loc = sync_dir();
+		stored_loc.push(entry.date_time());
+		stored_loc.push(log);
 
-		let file_contents = match fs::read_to_string(log) {
+		println!("Loading in log at {:?}...", stored_loc);
+
+		let file_contents = match fs::read_to_string(stored_loc) {
 			Ok(fc) => fc.lines()
 				.map(|l| colorize_line(l))
 				.collect::<Vec<String>>()
 				.join("\n"),
-			Err(err) => {
-				err!("Couldn't load in contents of log: {}", err);
-				return;
-			}
+			_ => return Err(FilterErrors::FileReadingFailed),
 		};
 
 		let mut pager = minus::Pager::new().unwrap();
 
 		pager.set_text(file_contents);
 
-		let prompt_str = format!("{} ({}; {})", log.to_str().unwrap_or("rager"), entry.user_id, entry.details);
+		let prompt_str = format!("{}/{} ({}; {})", 
+			entry.date_time(),
+			log,
+			entry.user_id.as_ref().unwrap_or(&"unknown".to_owned()),
+			entry.reason.as_ref().unwrap_or(&"unknown".to_owned())
+		);
 		pager.set_prompt(prompt_str);
 
-		if let Err(err) = minus::page_all(pager) {
-			err!("Can't page output: {}", err);
-			return;
-		}
+		minus::page_all(pager).map_err(|_| FilterErrors::ViewPagingFailed)?;
 	}
+
+	Ok(())
 }
 
 fn colorize_line(line: &str) -> String {

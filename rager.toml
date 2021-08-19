@@ -19,13 +19,23 @@ sync-os = "android,desktop"
 
 # Filter logs by only downloading logs before and/or after (respectively) the given dates
 # Dates must be a single day, in ISO-8601 format, with day, month, and year.
+# If these values are logically inconsistent or mutually exclusive, then simply no entries will sync.
 # These key/values are not required, and will not slow down the syncing.
 sync-before = "2021-07-01"
 sync-after = "2021-07-20"
+sync-when = "2021-07-10"
+
+# If you should only sync logs from a specific user
+# This is not required, and will slow down syncing dramatically if included.
+sync-user = "john"
 
 # Whether or not the server should download an entry anyways if it can't determine whether it fits the sync conditions above
 # This key/value is not required, will not slow down the syncing, and defaults to `true` when not included.
-ok-unsure = true
+sync-unsure = true
+
+# If an entry needs to match only one condition to be synced, or if it needs to match all. If any is true, it only needs to match one.
+# This is not required, and will default to false if not included.
+sync-any = true
 
 # Whether or not to use some slightly hacky methods to determine the OS of each entry when determining whether or not to sync them.
 #

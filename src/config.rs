@@ -1,28 +1,21 @@
-use std::{
-	fs::read_to_string,
-	convert::TryInto,
-	cmp::Ordering
-};
-use crate::{
-	err,
-	search,
-	sync,
-	search::EntryOS,
-};
+use std::fs::read_to_string;
+use crate::err;
 
 pub struct Config {
 	pub server: String,
 	pub username: String,
 	pub password: String,
 	pub threads: usize,
-	pub filter: SyncFilter,
 	pub beeper_hacks: bool,
 	pub sync_retry_limit: Option<usize>
 }
 
 impl Config {
-	pub fn from_file(file: Option<String>) -> Option<Config> {
-		let conf = file.unwrap_or_else(Config::default_file_url);
+	pub fn from_file(file: &Option<String>) -> Option<Config> {
+		//let conf = file.unwrap_or_else(Config::default_file_url);
+		let conf = file.as_ref()
+			.map(|f| f.to_owned())
+			.unwrap_or_else(Self::default_file_url);
 
 		match read_to_string(&conf) {
 			Ok(text) => match text.parse::<toml::Value>() {
@@ -50,51 +43,10 @@ impl Config {
 						_ => None
 					};
 
-					macro_rules! some_or_none_str{
-						($key:expr, $cl:tt) => {
-							match table.get($key) {
-								Some(higher) => match higher.as_str() {
-									Some(val) => $cl(val),
-									None => None,
-								},
-								None => None
-							}
-						}
-					}
-
-					let oses = some_or_none_str!("sync-os", (|o: &str|
-						Some(o.split(',')
-							.fold(Vec::new(), | mut sp, o | {
-								if let Ok(eos) = o.try_into() {
-									sp.push(eos);
-								}
-
-								sp
-							}))
-					));
-
-					macro_rules! sync_str_to_arr{
-						($key:expr) => {
-							some_or_none_str!($key, (|v: &str|
-								match SyncFilter::string_to_arr(v) {
-									Some(arr) => Some(arr),
-									_ => {
-										err!("Your {} key does not match ISO-8601 format", $key);
-										None
-									}
-								}
-							));
-						}
-					}
-
-					let before = sync_str_to_arr!("sync-before");
-					let after = sync_str_to_arr!("sync-after");
-
-					let ok_unsure = table.get("ok-unsure").map(|v| v.as_bool().unwrap_or(true)).unwrap_or(true);
-					let beeper_hacks = table.get("beeper-hacks").map(|v| v.as_bool().unwrap_or(false)).unwrap_or(false);
+					let beeper_hacks = table.get("beeper-hacks")
+						.map(|v| v.as_bool().unwrap_or(false)).unwrap_or(false);
 
 					return Some(Config {
-						filter: SyncFilter { oses, before, after, ok_unsure },
 						server,
 						password,
 						username,
@@ -120,117 +72,5 @@ impl Config {
 		config_dir.to_str()
 			.unwrap_or_default()
 			.to_string()
-	}
-}
-
-pub struct SyncFilter {
-	pub oses: Option<Vec<EntryOS>>,
-	pub before: Option<[u16; 3]>,
-	pub after: Option<[u16; 3]>,
-	pub ok_unsure: bool,
-}
-
-impl SyncFilter {
-	pub fn string_to_arr(input: &str) -> Option<[u16; 3]> {
-		// remove the trailing slash in case we're passing in a directory
-		let fixed = input.replace("/", "");
-		let splits: Vec<&str> = fixed.split('-').collect();
-
-		if splits.len() != 3 {
-			return None;
-		}
-
-		macro_rules! get_split{
-			($idx:expr) => {
-				match splits[$idx].parse::<u16>() {
-					Ok(val) => val,
-					_ => { return None; }
-				}
-			}
-		}
-
-		let first = get_split!(0);
-		let second = get_split!(1);
-		let third = get_split!(2);
-
-		Some([first, second, third])
-	}
-
-	pub async fn entry_allowed(&self, day_time: &str, conf: &std::sync::Arc<Config>) -> bool {
-		if self.before.is_some() || self.after.is_some() {
-
-			// If this is not safe to unwrap, something is massively wrong
-			let name = day_time
-				.split('/')
-				.collect::<Vec<&str>>()[0];
-
-			match self.day_allowed(name) {
-				Some(allowed) => if !allowed {
-					return false
-				},
-				None => return self.ok_unsure
-			}
-		}
-
-		// only actually look at the entry details themselves if we have an OS we want
-		if let Some(ref oses) = self.oses {
-
-			let mut on_device = crate::sync_dir();
-			on_device.push(day_time);
-
-			// check if we have it already downloaded
-			if let Some(downloaded_entry) = search::get_details_of_entry(&on_device) {
-				if !oses.contains(&downloaded_entry.os) {
-					return false;
-				}
-			} else {
-				let os = if conf.beeper_hacks {
-					match sync::get_hacky_os(day_time, conf).await {
-						Some(os) => Some(os),
-						None => sync::get_online_details(day_time, conf).await.map(|d| d.os),
-					}
-				} else {
-					sync::get_online_details(day_time, conf).await.map(|d| d.os)
-				};
-
-				return match os {
-					Some(o) => oses.contains(&o),
-					None => self.ok_unsure
-				}
-			}
-		}
-
-		true
-	}
-
-	pub fn day_allowed(&self, day: &str) -> Option<bool> {
-		let splits = match Self::string_to_arr(day) {
-			Some(sp) => sp,
-			_ => return None
-		};
-
-		if let Some(before) = self.before {
-			for (b, s) in before.iter().zip(&splits) {
-				// if the `before` year is after the date, it's bad (cause it has to be before
-				// 'before'), and if it's before, then we're good.
-				match b.cmp(s) {
-					Ordering::Greater => break,
-					Ordering::Less => return Some(false),
-					_ => ()
-				}
-			}
-		}
-
-		if let Some(after) = self.after {
-			for (a, s) in after.iter().zip(&splits) {
-				match a.cmp(s) {
-					Ordering::Greater => return Some(false),
-					Ordering::Less => break,
-					_ => ()
-				}
-			}
-		}
-
-		Some(true)
 	}
 }

@@ -1,0 +1,311 @@
+#![allow(non_camel_case_types)]
+
+use std::{
+	convert::TryFrom,
+	fs,
+	sync::Arc
+};
+use crate::{
+	err,
+	sync_dir,
+	get_links,
+	req_with_auth,
+	config,
+	errors::FilterErrors
+};
+
+pub struct Entry {
+	pub day: String, // e.g. `20210721`
+	pub time: String, // e.g. `022901`
+	pub checked_details: bool,
+	pub files: Option<Vec<String>>,
+	pub reason: Option<String>,
+	pub user_id: Option<String>,
+	pub os: Option<EntryOS>,
+	pub version: Option<String>,
+	pub config: Arc<config::Config>
+}
+
+impl Entry {
+	pub fn new(day: String, time: String, config: Arc<config::Config>) -> Entry {
+		// remove possible trailing directory separators
+		let day = day.replace("/", "").replace("\\", "");
+		let time = time.replace("/", "").replace("\\", "");
+
+		Entry {
+			day,
+			time,
+			config,
+			checked_details: false,
+			files: None,
+			reason: None,
+			user_id: None,
+			os: None,
+			version: None
+		}
+	}
+
+	pub fn date_time(&self) -> String {
+		format!("{}/{}", self.day, self.time)
+	}
+
+	pub async fn retrieve_file_list(&mut self, force_sync: bool) -> Result<(), reqwest::Error> {
+		let mut sync_dir = sync_dir();
+		sync_dir.push(self.date_time());
+
+		if !force_sync {
+			if let Ok(contents) = fs::read_dir(&sync_dir) {
+				let files = contents.fold(Vec::new(), | mut files, file | {
+					let file = match file {
+						Ok(file) => file,
+						_ => return files
+					};
+
+					match file.path().file_name() {
+						Some(file_name) => match file_name.to_str() {
+							Some(name) => files.push(name.to_owned()),
+							_ => ()
+						},
+						_ => ()
+					}
+
+					files
+				});
+
+				self.files = Some(files);
+
+				return Ok(());
+			}
+		}
+
+		let url = format!("{}/api/listing/{}", self.config.server, self.date_time());
+
+		let response = req_with_auth(&url, &self.config).await?;
+		let res_text = response.text().await?;
+
+		let files = get_links(&res_text)
+			.into_iter()
+			.map(|l| l.replace("/", ""))
+			.collect::<Vec<String>>();
+
+		self.files = Some(files);
+
+		Ok(())
+	}
+
+	pub async fn set_download_values(&mut self) -> Result<(), reqwest::Error> {
+		let mut dir = sync_dir();
+		dir.push(&self.day);
+		dir.push(&self.time);
+		dir.push("details.log.gz");
+
+		let contents = match fs::read_to_string(&dir) {
+			Ok(contents) => {
+				contents
+			}
+			_ => {
+				let url = format!("{}/api/listing/{}/details.log.gz", self.config.server, self.date_time());
+
+				let response = req_with_auth(&url, &self.config).await?;
+				response.text().await?
+			}
+		};
+
+		let mut total_found = 0;
+		let total = 5;
+
+		for (idx, line) in contents.lines().enumerate() {
+			if idx == 0 {
+				self.reason = Some(line.to_owned());
+
+				total_found += 1;
+			} else if line.starts_with("Application") {
+
+				if line.contains("android") {
+					self.os = Some(EntryOS::Android);
+				} else if line.contains("web") || line.contains("desktop") {
+					self.os = Some(EntryOS::Desktop);
+				}
+
+				total_found += 1;
+			} else if line.starts_with("user_id") {
+				let components: Vec<&str> = line.split(' ').collect();
+
+				if components.len() > 1 {
+					self.user_id = Some(components[1].to_owned());
+				}
+
+				total_found += 1;
+			} else if line.starts_with("Version") || line.starts_with("app_hash") {
+				let components: Vec<&str> = line.split(' ').collect();
+
+				if components.len() > 1 {
+					self.version = Some(components[1].to_owned());
+				}
+
+				total_found += 1;
+			} else if line.starts_with("build") {
+				let components: Vec<&str> = line.split(' ').collect();
+
+				if components.len() > 1 {
+					let build = components[1..].join(" ");
+
+					self.version = match self.version {
+						Some(ref vers) => Some(format!("{} ({})", vers, build)),
+						None => Some(build)
+					};
+				}
+
+				total_found += 1;
+			}
+
+			if total_found == total {
+				break;
+			}
+		}
+
+		self.checked_details = true;
+
+		Ok(())
+	}
+
+	pub async fn get_and_set_os(&mut self, force_sync: bool) -> Result<(), reqwest::Error> {
+		if self.config.beeper_hacks {
+			if self.files.is_none() {
+				self.retrieve_file_list(force_sync).await?;
+			}
+
+			if let Some(ref links) = self.files {
+				self.os = if links.len() == 1 && links[0].starts_with("details.log.gz") {
+					Some(EntryOS::Desktop)
+				} else if links.iter().any(|l| l.starts_with("console")) {
+					Some(EntryOS::iOS)
+				} else if links.iter().any(|l| l.starts_with("logs-")) {
+					Some(EntryOS::Android)
+				} else {
+					None
+				};
+			}
+		}
+
+		if self.os.is_none() {
+			if self.set_download_values().await.is_err() {
+				err!("Failed to determine details of entry {}", self.date_time());
+			}
+		}
+
+		Ok(())
+	}
+
+	pub fn description(&self) -> String {
+		let unknown = "unknown".to_owned();
+
+		format!("\x1b[1m{}\x1b[0m: {}\n\
+			\tOS:       \x1b[32;1m{}\x1b[0m\n\
+			\tVersion:  \x1b[32;1m{}\x1b[0m\n\
+			\tLocation: {:?}\n",
+				self.user_id.as_ref().unwrap_or_else(|| &unknown),
+				self.reason.as_ref().unwrap_or_else(|| &unknown),
+				match self.os {
+					Some(EntryOS::iOS) => "iOS",
+					Some(EntryOS::Android) => "Android",
+					Some(EntryOS::Desktop) => "Desktop",
+					None => "unknown",
+				},
+				self.version.as_ref().unwrap_or_else(|| &unknown),
+				self.date_time()
+			)
+	}
+
+	pub fn selectable_description(&self) -> String {
+		let unknown = "unknown".to_owned();
+
+		format!("{} ({}): {}",
+			self.user_id.as_ref().unwrap_or_else(|| &unknown),
+			match self.os {
+				Some(EntryOS::iOS) => "iOS",
+				Some(EntryOS::Android) => "Android",
+				Some(EntryOS::Desktop) => "Desktop",
+				None => "unknown",
+			},
+			self.reason.as_ref().unwrap_or_else(|| &unknown)
+		)
+	}
+
+	pub fn is_downloaded(&self) -> bool {
+		let mut dir = sync_dir();
+		dir.push(self.date_time());
+		//dir.push("details.log.gz");
+
+		std::path::Path::new(&dir).exists()
+	}
+
+	pub async fn files_containing_term(&mut self, term: &str) -> Result<Vec<String>, FilterErrors> {
+		let regex = match regex::Regex::new(term) {
+			Ok(rg) => rg,
+			_ => return Err(FilterErrors::BadRegexTerm)
+		};
+
+		let mut dir = sync_dir();
+		dir.push(self.date_time());
+
+		if self.files.is_none() {
+			let _ = self.retrieve_file_list(false).await;
+		}
+
+		// iterate through the current list of files, fold them
+		if let Some(files) = &self.files {
+			Ok(files.iter()
+				.fold(Vec::new(), | mut files, file | {
+					let mut file_dir = dir.clone();
+					file_dir.push(file);
+
+					// if we can read it to string and it matches the regex, push it
+					match fs::read_to_string(&file_dir) {
+						Ok(text) if regex.is_match(&text) => {
+							files.push(file.to_owned());
+							files
+						},
+						_ => files
+					}
+				}))
+		} else {
+			Ok(Vec::new())
+		}
+	}
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub enum EntryOS {
+	iOS,
+	Android,
+	Desktop
+}
+
+impl ToString for EntryOS {
+	fn to_string(&self) -> String {
+		match self {
+			EntryOS::iOS => "iOS".to_owned(),
+			EntryOS::Android => "Android".to_owned(),
+			EntryOS::Desktop => "Desktop".to_owned()
+		}
+	}
+}
+
+impl TryFrom<&str> for EntryOS {
+	type Error = String;
+
+	fn try_from(val: &str) -> Result<Self, Self::Error> {
+		let lower = val.to_lowercase();
+
+		if lower.contains("ios") {
+			Ok(EntryOS::iOS)
+		} else if lower.contains("android") {
+			Ok(EntryOS::Android)
+		} else if lower.contains("web") || lower.contains("desktop") {
+			Ok(EntryOS::Desktop)
+		} else {
+			Err("EntryOS string must contain 'ios', 'android', 'web', or 'desktop'".to_owned())
+		}
+	}
+}

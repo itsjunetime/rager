@@ -1,5 +1,7 @@
 use clap::{App, Arg};
 use std::sync::{Arc, Mutex};
+use std::convert::TryInto;
+use errors::FilterErrors::*;
 
 mod sync;
 mod search;
@@ -7,6 +9,8 @@ mod config;
 mod view;
 mod prune;
 mod errors;
+mod filter;
+mod entry;
 
 const ERR_PREFIX: &str = "\x1b[31;1mERROR:\x1b[0m";
 const WARN_PREFIX: &str = "\x1b[33;1mWARNING:\x1b[0m";
@@ -27,48 +31,58 @@ macro_rules! warn{
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 20)]
 async fn main() {
+	macro_rules! subcommand_search{
+		($name:expr, $about:expr) => {
+			App::new($name)
+				.about($about)
+				.arg(Arg::with_name("user")
+					.short("u")
+					.long("user")
+					.help("Select logs from a specific user")
+					.takes_value(true))
+				.arg(Arg::with_name("when")
+					.short("w")
+					.long("when")
+					.help("Select logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
+					.takes_value(true))
+				.arg(Arg::with_name("term")
+					.short("t")
+					.long("term")
+					.help("Select logs containing a specific term (rust-flavored regex supported)")
+					.takes_value(true))
+				.arg(Arg::with_name("os")
+					.short("o")
+					.long("os")
+					.help("Select logs from a specific OS (either 'ios', 'android', or 'desktop')")
+					.takes_value(true))
+				.arg(Arg::with_name("before")
+					.short("b")
+					.long("before")
+					.help("Select logs before a certain date")
+					.takes_value(true))
+				.arg(Arg::with_name("after")
+					.short("a")
+					.long("after")
+					.help("Select logs from after a certain date")
+					.takes_value(true))
+		}
+	}
+
 	let matches = App::new("Rager")
 		.version("1.0")
 		.author("Ian Welker <@janshai:beeper.com>")
-		.subcommand(App::new("sync")
-			.about("Download all the logs from the server that you don't currently have on your device")
+		.subcommand(subcommand_search!("sync", "Download all the logs from the server that you don't currently have on your device")
 			.arg(Arg::with_name("config")
 				.short("c")
 				.help("The TOML config file to use when syncing. Located at ~/.config/rager.toml (on linux) by default")
 				.takes_value(true))
 			.arg(Arg::with_name("threads")
-				.short("t")
+				.short("s")
 				.help("How many threads to spawn while downloading. WARNING: this can cause panics when set too high. Recommended value is around 50.")
 				.takes_value(true)))
 		.subcommand(App::new("desync")
 			.about("Clear all logs off of your device"))
-		.subcommand(App::new("search")
-			.about("Search through the logs currently on your device")
-			.arg(Arg::with_name("user")
-				.short("u")
-				.long("user")
-				.help("Search for logs from a specific user")
-				.takes_value(true))
-			.arg(Arg::with_name("when")
-				.short("w")
-				.long("when")
-				.help("Search for logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
-				.takes_value(true))
-			.arg(Arg::with_name("term")
-				.short("t")
-				.long("term")
-				.help("Search for logs containing a specific term (rust-flavored regex supported)")
-				.takes_value(true))
-			.arg(Arg::with_name("os")
-				.short("o")
-				.long("os")
-				.help("Search for logs from a specific OS (either 'ios', 'android', or 'desktop')")
-				.takes_value(true))
-			.arg(Arg::with_name("any")
-				.short("a")
-				.long("any")
-				.help("Match an entry if any of the terms are true, not just if all are")
-				.takes_value(false))
+		.subcommand(subcommand_search!("search", "Search through the logs currently on your device")
 			.arg(Arg::with_name("preview")
 				.short("p")
 				.long("preview")
@@ -81,37 +95,17 @@ async fn main() {
 				.required(true)
 				.help("The entry (e.g. '2021-07-08/161300') to view the logs for")
 				.takes_value(true)))
-		.subcommand(App::new("prune")
-			.about("Delete all entries that match the terms")
-			.arg(Arg::with_name("user")
-				.short("u")
-				.long("user")
-				.help("Delete logs from a specific user")
-				.takes_value(true))
-			.arg(Arg::with_name("when")
-				.short("w")
-				.long("when")
-				.help("Delete logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
-				.takes_value(true))
-			.arg(Arg::with_name("term")
-				.short("t")
-				.long("term")
-				.help("Delete logs containing a specific term (rust-flavored regex supported)")
-				.takes_value(true))
-			.arg(Arg::with_name("os")
-				.short("o")
-				.long("os")
-				.help("Delete logs from a specific OS (either 'ios', 'android', or 'desktop')")
-				.takes_value(true)))
+		.subcommand(subcommand_search!("prune", "Delete all entries that match the terms"))
 		.get_matches();
 
 	if let Some(args) = matches.subcommand_matches("sync") {
-		let config_file = args.value_of("config")
-			.map(|a| a.to_owned());
-
-		let mut config = match config::Config::from_file(config_file) {
-			Some(conf) => conf,
-			None => return
+		// get the filter and the config file
+		let (filter, mut config) = match filter_and_config(&args, true) {
+			Some((f, c)) => (f, c),
+			None => {
+				err!("Can't read configuration from given file");
+				std::process::exit(1);
+			}
 		};
 
 		if let Some(threads) = args.value_of("threads") {
@@ -128,6 +122,7 @@ async fn main() {
 
 		let lim = config.sync_retry_limit.map(|l| l as i8).unwrap_or(-1);
 		let conf_arc = Arc::new(config);
+		let filter_arc = Arc::new(filter);
 
 		// normally I opt for a RwLock over a mutex but both this and to_check basically only ever
 		// write, (state never reads, to_check only reads once and it's after everyone finishes writing
@@ -142,7 +137,7 @@ async fn main() {
 
 		let mut retried: i8 = 0;
 		
-		let mut result = sync::sync_logs(&conf_arc, &state).await;
+		let mut result = sync::sync_logs(&filter_arc, &conf_arc, &state).await;
 
 		while retried < lim || lim == 0 {
 			match result {
@@ -157,7 +152,7 @@ async fn main() {
 							}
 
 							println!("\nRager was unable to get a full list of directories; trying again...");
-							result = sync::sync_logs(&conf_arc, &state).await;
+							result = sync::sync_logs(&filter_arc, &conf_arc, &state).await;
 						},
 						errors::SyncErrors::FilesDownloadFailed(files) => {
 							if let Ok(mut state) = state.lock() {
@@ -178,57 +173,139 @@ async fn main() {
 		sync::desync_all()
 
 	} else if let Some(args) = matches.subcommand_matches("search") {
-		let any = args.is_present("any");
 		let view = !args.is_present("preview");
 
-		let terms = get_terms_from_matches(args);
+		let (filter, config) = match filter_and_config(&args, false) {
+			Some((f, c)) => (f, c),
+			None => {
+				err!("Can't read configuration from given file");
+				std::process::exit(1);
+			}
+		};
 
-		if terms.when.is_none() && terms.user.is_none() &&
-			terms.term.is_none() && terms.os.is_none() {
-			err!("You must enter some terms to search entries.");
-		}
-
-		search::search(any, terms, view).await;
+		search::search(filter, config, view).await;
 	} else if let Some(args) = matches.subcommand_matches("view") {
 		// safe to unwrap 'cause Clap would catch if it wasn't included
-		let entry = args.value_of("entry").unwrap();
+		let day_time = args.value_of("entry").unwrap();
 
-		let mut dir = sync_dir();
-		dir.push(entry);
+		let regex_str =r"\d{4}-\d{2}-\d{2}/\d{6}";
+		let date_regex = regex::Regex::new(regex_str).unwrap();
 
-		match search::get_details_of_entry(&dir) {
-			Some(ent) => view::view(&ent, Vec::new()),
-			None => err!("There appears to be no entry at {:?}", dir),
+		// make sure it matches the regex so we can parse it correctly
+		if !date_regex.is_match(day_time) {
+			err!("Please enter a date that matches the regex {}", regex_str);
+		}
+
+		let splits = day_time.split("/").collect::<Vec<&str>>();
+		let day = splits[0].to_owned();
+		let time = splits[1].to_owned();
+
+		let config_file = args.value_of("config").map(|c| c.to_owned());
+		let config = match config::Config::from_file(&config_file) {
+			Some(conf) => Arc::new(conf),
+			None => {
+				err!("Could not read or parse config file");
+				std::process::exit(1);
+			}
+		};
+
+		let mut entry = entry::Entry::new(day, time, config);
+
+		if let Err(err) = view::view(&mut entry, Vec::new()).await {
+			match err {
+				ViewingBeforeDownloading => err!("Cannot view a file before downloading the entry"),
+				FileRetrievalFailed => err!("Failed to determine list of files in entry"),
+				FileReadingFailed => err!("Failed to read specified file"),
+				ViewPagingFailed => err!("Failed to display file on page"),
+				_ => ()
+			}
 		}
 	} else if let Some(args) = matches.subcommand_matches("prune") {
-		let terms = get_terms_from_matches(args);
+		// get the filter and the config file
+		let (filter, config) = match filter_and_config(&args, false) {
+			Some((f, c)) => (f, c),
+			None => {
+				err!("Can't read configuration from given file");
+				std::process::exit(1);
+			}
+		};
 
-		if terms.when.is_none() && terms.user.is_none() &&
-			terms.term.is_none() && terms.os.is_none() {
-			err!("You must enter some terms to prune entries. If you would like to delete all, use the \x1b[1mdesync\x1b[0m command");
-		}
-
-		prune::remove_with_terms(terms).await;
+		prune::remove_with_terms(filter, config).await;
 	}
 }
 
-pub fn get_terms_from_matches(terms: &clap::ArgMatches) -> search::SearchTerms {
-	let when = terms.value_of("when").map(|w| w.to_owned());
+pub fn filter_and_config(terms: &clap::ArgMatches, syncing: bool) -> Option<(filter::Filter, config::Config)> {
+	let config_file = terms.value_of("config").map(|c| c.to_owned());
+	let config = match config::Config::from_file(&config_file) {
+		Some(conf) => conf,
+		None => return None,
+	};
+
+	macro_rules! get_date{
+		($key:expr) => {
+			match terms.value_of($key) {
+				Some(val) => filter::Filter::date_array(val),
+				_ => None
+			};
+		}
+	}
+
 	let user = terms.value_of("user").map(|u| u.to_owned());
 	let term = terms.value_of("term").map(|t| t.to_owned());
-	let os = terms.value_of("os").map(|o|
-		match o {
-			"ios" => search::EntryOS::iOS,
-			"android" => search::EntryOS::Android,
-			"desktop" => search::EntryOS::Desktop,
-			x => {
-				err!("Did not recognize os '{}' (must be 'ios, 'android', or 'desktop')", x);
+
+	let any = terms.is_present("any");
+	let ok_unsure = terms.is_present("ok_unsure");
+
+	let when = get_date!("when");
+	let before = get_date!("before");
+	let after = get_date!("after");
+
+	let oses = terms.value_of("os").map(|o|
+		match o.try_into() {
+			Ok(entry) => vec![entry],
+			Err(err) => {
+				err!("{}", err);
 				std::process::exit(1);
 			}
 		}
 	);
 
-	search::SearchTerms { user, term, when, os }
+	let ret_filter = if syncing {
+		let mut ret_filter = filter::Filter::from_config_file(&config_file);
+
+		macro_rules! set_new {
+			($($items:ident, )*) => {
+				$(if let Some(val) = $items {
+					ret_filter.$items = Some(val);
+				})*
+			}
+		}
+
+		set_new!(user, term, when, before, after, oses,);
+
+		if any {
+			ret_filter.any = true;
+		}
+
+		if ok_unsure {
+			ret_filter.ok_unsure = true;
+		}
+
+		ret_filter
+	} else {
+		filter::Filter {
+			user,
+			term,
+			when,
+			before,
+			after,
+			oses,
+			any,
+			ok_unsure
+		}
+	};
+
+	Some((ret_filter, config))
 }
 
 async fn req_with_auth<U: reqwest::IntoUrl>(url: U, conf: &config::Config) -> reqwest::Result<reqwest::Response> {

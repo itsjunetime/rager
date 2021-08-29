@@ -76,7 +76,7 @@ pub async fn sync_logs(
 	let list_url = format!("{}/api/listing/", conf.server);
 
 	// get the list of days to check from the server
-	let days = match req_with_auth(&list_url, &conf).await {
+	let days = match req_with_auth(&list_url, conf).await {
 		Ok(d) => d,
 		Err(err) => {
 			err!("Couldn't get list of days to check from server: {}", err);
@@ -125,7 +125,7 @@ pub async fn sync_logs(
 
 			// spawn a new thread for each entry in each day, since we have to
 			// check all the files in each entry
-			tokio::spawn(async move {
+			async move {
 
 				// before querying to get the list of entries for a specific day, just
 				// make sure the day itself is allowed. Optimizations.
@@ -269,10 +269,14 @@ pub async fn sync_logs(
 
 				futures::future::join_all(time_joins).await;
 
-			})
+			}
 		});
 
-	futures::future::join_all(day_joins).await;
+	// just buffer 10 at a time to prevent TCP connection issues
+	futures::stream::iter(day_joins)
+		.buffer_unordered(10)
+		.collect::<Vec<()>>()
+		.await;
 
 	if failed_a_listing.load(Ordering::Relaxed) {
 		return Err(ListingFailed);
@@ -297,13 +301,15 @@ pub async fn sync_logs(
 		let mut empty = Vec::new();
 		std::mem::swap(&mut *downloads, &mut empty);
 
-		return download_files(empty, &state, &conf).await;
+		return download_files(empty, state, conf).await;
 	};
 
 	Ok(())
 }
 
-pub async fn download_files(files: Vec<Download>, state: &Arc<Mutex<SyncTracker>>, conf: &Arc<config::Config>) -> Result<(), errors::SyncErrors> {
+pub async fn download_files(
+	files: Vec<Download>, state: &Arc<Mutex<SyncTracker>>, conf: &Arc<config::Config>
+) -> Result<(), errors::SyncErrors> {
 	let log_dir = sync_dir();
 	let list_url = format!("{}/api/listing/", conf.server);
 

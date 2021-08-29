@@ -100,7 +100,7 @@ async fn main() {
 
 	if let Some(args) = matches.subcommand_matches("sync") {
 		// get the filter and the config file
-		let (filter, mut config) = match filter_and_config(&args, true) {
+		let (filter, mut config) = match filter_and_config(args, true) {
 			Some((f, c)) => (f, c),
 			None => {
 				err!("Can't read configuration from given file");
@@ -175,7 +175,7 @@ async fn main() {
 	} else if let Some(args) = matches.subcommand_matches("search") {
 		let view = !args.is_present("preview");
 
-		let (filter, config) = match filter_and_config(&args, false) {
+		let (filter, config) = match filter_and_config(args, false) {
 			Some((f, c)) => (f, c),
 			None => {
 				err!("Can't read configuration from given file");
@@ -188,7 +188,7 @@ async fn main() {
 		// safe to unwrap 'cause Clap would catch if it wasn't included
 		let day_time = args.value_of("entry").unwrap();
 
-		let regex_str =r"\d{4}-\d{2}-\d{2}/\d{6}";
+		let regex_str = r"\d{4}-\d{2}-\d{2}/\d{6}";
 		let date_regex = regex::Regex::new(regex_str).unwrap();
 
 		// make sure it matches the regex so we can parse it correctly
@@ -196,7 +196,7 @@ async fn main() {
 			err!("Please enter a date that matches the regex {}", regex_str);
 		}
 
-		let splits = day_time.split("/").collect::<Vec<&str>>();
+		let splits = day_time.split('/').collect::<Vec<&str>>();
 		let day = splits[0].to_owned();
 		let time = splits[1].to_owned();
 
@@ -222,7 +222,7 @@ async fn main() {
 		}
 	} else if let Some(args) = matches.subcommand_matches("prune") {
 		// get the filter and the config file
-		let (filter, config) = match filter_and_config(&args, false) {
+		let (filter, config) = match filter_and_config(args, false) {
 			Some((f, c)) => (f, c),
 			None => {
 				err!("Can't read configuration from given file");

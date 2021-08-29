@@ -61,12 +61,10 @@ impl Entry {
 						_ => return files
 					};
 
-					match file.path().file_name() {
-						Some(file_name) => match file_name.to_str() {
-							Some(name) => files.push(name.to_owned()),
-							_ => ()
-						},
-						_ => ()
+					if let Some(file_name) = file.path().file_name() {
+						if let Some(name) = file_name.to_str() {
+							files.push(name.to_owned());
+						}
 					}
 
 					files
@@ -176,7 +174,7 @@ impl Entry {
 			}
 
 			if let Some(ref links) = self.files {
-				self.os = if links.len() == 1 && links[0].starts_with("details.log.gz") {
+				/*self.os = if links.len() == 1 && links[0].starts_with("details.log.gz") {
 					Some(EntryOS::Desktop)
 				} else if links.iter().any(|l| l.starts_with("console")) {
 					Some(EntryOS::iOS)
@@ -184,14 +182,17 @@ impl Entry {
 					Some(EntryOS::Android)
 				} else {
 					None
-				};
+				};*/
+				self.os = if links.iter().any(|l| l.starts_with("console")) {
+					Some(EntryOS::iOS)
+				} else {
+					None
+				}
 			}
 		}
 
-		if self.os.is_none() {
-			if self.set_download_values().await.is_err() {
-				err!("Failed to determine details of entry {}", self.date_time());
-			}
+		if self.os.is_none() && self.set_download_values().await.is_err() {
+			err!("Failed to determine details of entry {}", self.date_time());
 		}
 
 		Ok(())
@@ -204,15 +205,15 @@ impl Entry {
 			\tOS:       \x1b[32;1m{}\x1b[0m\n\
 			\tVersion:  \x1b[32;1m{}\x1b[0m\n\
 			\tLocation: {:?}\n",
-				self.user_id.as_ref().unwrap_or_else(|| &unknown),
-				self.reason.as_ref().unwrap_or_else(|| &unknown),
+				self.user_id.as_ref().unwrap_or(&unknown),
+				self.reason.as_ref().unwrap_or(&unknown),
 				match self.os {
 					Some(EntryOS::iOS) => "iOS",
 					Some(EntryOS::Android) => "Android",
 					Some(EntryOS::Desktop) => "Desktop",
 					None => "unknown",
 				},
-				self.version.as_ref().unwrap_or_else(|| &unknown),
+				self.version.as_ref().unwrap_or(&unknown),
 				self.date_time()
 			)
 	}
@@ -221,14 +222,14 @@ impl Entry {
 		let unknown = "unknown".to_owned();
 
 		format!("{} ({}): {}",
-			self.user_id.as_ref().unwrap_or_else(|| &unknown),
+			self.user_id.as_ref().unwrap_or(&unknown),
 			match self.os {
 				Some(EntryOS::iOS) => "iOS",
 				Some(EntryOS::Android) => "Android",
 				Some(EntryOS::Desktop) => "Desktop",
 				None => "unknown",
 			},
-			self.reason.as_ref().unwrap_or_else(|| &unknown)
+			self.reason.as_ref().unwrap_or(&unknown)
 		)
 	}
 

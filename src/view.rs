@@ -51,7 +51,7 @@ pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterE
 
 	let string_paths = files.iter()
 		.fold(Vec::new(), | mut files, log | {
-			let log_str = if matches.contains(&log) {
+			let log_str = if matches.contains(log) {
 				format!("{} (matches)", log)
 			} else {
 				log.to_owned()

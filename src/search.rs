@@ -44,7 +44,7 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 		if view {
 			// get the entries that contain the specified term so we can pass it to the view fn
 			let entries = match filter_arc.term.as_ref() {
-				Some(term) => match entry.files_containing_term(&term).await {
+				Some(term) => match entry.files_containing_term(term).await {
 					Ok(fil) => Some(fil),
 					_ => None
 				},
@@ -94,7 +94,7 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 						let time_conf = day_conf.clone();
 						let time_match = day_match.clone();
 
-						let day_path = day.path().clone();
+						let day_path = day.path();
 
 						tokio::spawn(async move {
 							// make sure each time is Ok()

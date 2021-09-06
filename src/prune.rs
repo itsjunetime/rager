@@ -48,7 +48,7 @@ pub async fn remove_with_terms(filter: Filter, config: Config) {
 		for dir in contents.filter_map(ok_to_some) {
 			if let Ok(inner) = fs::read_dir(dir.path()) {
 				// only delete the directory if it's empty
-				if inner.filter_map(ok_to_some).collect::<Vec<_>>().is_empty() {
+				if inner.filter_map(ok_to_some).next().is_none() {
 					let path = dir.path();
 
 					if let Err(err) = fs::remove_dir_all(&path) {

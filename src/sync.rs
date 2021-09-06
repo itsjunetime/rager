@@ -166,7 +166,7 @@ pub async fn sync_logs(
 
 				let mut times = time_lines
 					.into_iter()
-					.map(|t| (day.replace("/", "").to_owned(), t.replace("/", "")))
+					.map(|t| (day.replace("/", ""), t.replace("/", "")))
 					.collect::<Vec<(String, String)>>();
 
 				if let Ok(mut helper) = day_helper.lock() {

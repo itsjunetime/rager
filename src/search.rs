@@ -143,12 +143,12 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 
 	// clippy I know you think that it would be possible to omit the return statements but it
 	// actually wouldn't cause of compiler errors that occur when I remove the semicolon at the end
-	match matches.lock() {
+	return match matches.lock() {
 		Ok(mut entries) => {
 			let mut new_entries = Vec::new();
 			std::mem::swap(&mut new_entries, &mut *entries);
-			return Some(new_entries)
+			Some(new_entries)
 		},
-		_ => return None
+		_ => None
 	};
 }

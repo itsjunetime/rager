@@ -29,7 +29,7 @@ macro_rules! warn{
 	}
 }
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 20)]
+#[tokio::main]
 async fn main() {
 	macro_rules! subcommand_search{
 		($name:expr, $about:expr) => {
@@ -128,11 +128,10 @@ async fn main() {
 		// write, (state never reads, to_check only reads once and it's after everyone finishes writing
 		// to it), so there's really no reason to choose RwLock over mutex here.
 		let state = Arc::new(Mutex::new(sync::SyncTracker {
-			prefix: "Checking Directories:".to_owned(),
+			prefix: "Checking Days:".to_owned(),
 			started: 0,
 			done: 0,
 			total: 0,
-			finalized_size: false,
 		}));
 
 		let mut retried: i8 = 0;

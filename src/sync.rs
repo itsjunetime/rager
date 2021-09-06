@@ -10,10 +10,6 @@ use std::{
 	sync::{
 		Arc,
 		Mutex,
-		atomic::{
-			AtomicBool,
-			Ordering
-		}
 	},
 };
 use futures::StreamExt;
@@ -50,7 +46,16 @@ pub async fn sync_logs(
 	// Then, once we've checked all the files on the server and have a complete list of the ones we
 	// need to download, we pass it into the futures::sream::iter func below and download all of
 	// them through tokio.
-	let to_check: Arc<Mutex<Vec<Download>>> = Arc::new(Mutex::new(Vec::new()));
+	//let to_download: Arc<Mutex<Vec<Download>>> = Arc::new(Mutex::new(Vec::new()));
+
+	// a convenience struct to wrap a few simple things
+	let helper = Arc::new(Mutex::new(
+		SyncHelper {
+			failed_listing: false,
+			to_download: Vec::new(),
+			times_to_check: Vec::new()
+		}
+	));
 
 	let log_dir = sync_dir();
 
@@ -76,40 +81,40 @@ pub async fn sync_logs(
 	let list_url = format!("{}/api/listing/", conf.server);
 
 	// get the list of days to check from the server
-	let days = match req_with_auth(&list_url, conf).await {
-		Ok(d) => d,
+	let days_text = match req_with_auth(&list_url, conf).await {
+		Ok(days) => match days.text().await {
+			Ok(dt) => dt,
+			Err(err) => {
+				err!("Server's list of days contains unparseable text: {}", err);
+				return Err(ListingFailed);
+			}
+		},
 		Err(err) => {
 			err!("Couldn't get list of days to check from server: {}", err);
-			return Err(ListingFailed)
-		}
-	};
-
-	let days_text = match days.text().await {
-		Ok(dt) => dt,
-		Err(err) => {
-			err!("Server's list of days contains unparseable text: {}", err);
-			return Err(ListingFailed)
+			return Err(ListingFailed);
 		}
 	};
 
 	let day_links = get_links(&days_text);
-	let day_len = day_links.len();
 
 	println!("Finding the files that need to be downloaded...");
 
-	let failed_a_listing = Arc::new(AtomicBool::new(false));
-
 	macro_rules! fail_listing{
 		($mux:expr) => {
-			let f = $mux.load(Ordering::Relaxed);
-			$mux.store(!f, Ordering::Relaxed);
+			if let Ok(mut mux) = $mux.lock() {
+				mux.failed_listing = !mux.failed_listing;
+			}
 		}
+	}
+
+	if let Ok(mut state) = state.lock() {
+		state.reset("Checking days:".to_owned());
+		state.add_to_size(day_links.len());
 	}
 
 	// for each day...
 	let day_joins = day_links.into_iter()
-		.enumerate()
-		.map(|(idx, d)| {
+		.map(|d| {
 
 			let mut day_log_dir = log_dir.clone();
 			let day = d.to_owned();
@@ -117,169 +122,165 @@ pub async fn sync_logs(
 
 			let day_state = state.clone();
 			let day_conf = conf.clone();
-			let day_to_check = to_check.clone();
-			let day_fail = failed_a_listing.clone();
 			let day_filter = filter.clone();
+			let day_helper = helper.clone();
 
 			let day_url = format!("{}{}", list_url, day);
+
+			macro_rules! finish{
+				() => {
+					if let Ok(mut state) = day_state.lock() {
+						state.finished_one();
+					}
+					return;
+				};
+				($msg:expr$(, $args:expr)*) => {{
+					st_err!(day_state, $msg$(, $args)*);
+					fail_listing!(day_helper);
+					finish!();
+				}}
+			}
 
 			// spawn a new thread for each entry in each day, since we have to
 			// check all the files in each entry
 			async move {
+				if let Ok(mut state) = day_state.lock() {
+					state.add_one_started();
+				}
 
 				// before querying to get the list of entries for a specific day, just
 				// make sure the day itself is allowed. Optimizations.
 				if !day_filter.day_ok(&day) {
-					if let Ok(mut state) = day_state.lock() {
-						if idx == day_len {
-							state.finalized_size = true;
-						}
-					}
-
-					return;
+					finish!();
 				}
 
-				let times = match req_with_auth(&day_url, &*day_conf).await {
-					Ok(tm) => tm,
-					Err(err) => {
-						st_err!(day_state, "Could not get list of times of day {}: {}", day, err);
-						fail_listing!(day_fail);
-						return;
-					}
-				};
-
-				let times_text = match times.text().await {
-					Ok(tt) => tt,
-					Err(err) => {
-						st_err!(day_state, "Could not get text for list of times of day {}: {}", day, err);
-						fail_listing!(day_fail);
-						return;
-					}
+				let times_text = match req_with_auth(&day_url, &*day_conf).await {
+					Ok(tm) => match tm.text().await {
+						Ok(tt) => tt,
+						Err(err) => finish!("Could not get text for list of times of day {}: {}", day, err),
+					},
+					Err(err) => finish!("Could not get list of times of day {}: {}", day, err),
 				};
 
 				let time_lines = get_links(&times_text);
 
-				if let Ok(mut state) = day_state.lock() {
-					state.add_to_size(time_lines.len());
+				let mut times = time_lines
+					.into_iter()
+					.map(|t| (day.replace("/", "").to_owned(), t.replace("/", "")))
+					.collect::<Vec<(String, String)>>();
 
-					// We check to set this finalized_size because we can't predict the order in
-					// which these tokio tasks will execute. It may completely check all
-					// directories but one, then start on the final directory.
-					//
-					// However, if this happens and we don't have a way of verifying that we've
-					// added the total number of directories to the state, it will think it's done
-					// when it hasn't even started on one directory
-					//
-					// So we need a way of manually telling it that we're not done yet, even if
-					// we've downloaded the number of files that we've said we need to download.
-					// Hence the flag.
-					if idx == day_len {
-						state.finalized_size = true;
-					}
+				if let Ok(mut helper) = day_helper.lock() {
+					helper.times_to_check.append(&mut times);
 				}
 
-				let time_joins = time_lines
-					.into_iter()
-					.map(|t| {
-
-						let mut time_log_dir = day_log_dir.clone();
-						let time = t.to_owned();
-						time_log_dir.push(t);
-
-						let day = day.to_owned();
-
-						let time_state = day_state.clone();
-						let time_conf = day_conf.clone();
-						let time_to_check = day_to_check.clone();
-						let time_fail = day_fail.clone();
-						let time_filter = day_filter.clone();
-
-						let time_url = format!("{}{}", day_url, time);
-
-						if let Ok(mut state) = day_state.lock() {
-							state.add_one_started();
-						}
-
-						// and then spawn a new thread for each entry...
-						tokio::spawn(async move {
-							macro_rules! finish{
-								() => {
-									if let Ok(mut state) = time_state.lock() {
-										state.finished_one();
-									}
-									return;
-								};
-								($state:expr$(, $args:expr)*) => {
-									{
-										st_err!($state$(, $args)*);
-										fail_listing!(time_fail);
-										finish!();
-									}
-								}
-							}
-
-							let files = match req_with_auth(&time_url, &*time_conf).await {
-								Ok(f) => f,
-								Err(err) => finish!(time_state, "Could not retrieve list of files at {}: {}", time_url, err),
-							};
-
-							let files_text = match files.text().await {
-								Ok(ft) => ft,
-								Err(err) => finish!(time_state, "Could not get text for list of files at {}: {}", time_url, err),
-							};
-
-							let mut entry = Entry::new(day, time, time_conf.clone());
-
-							let entry_ok = match time_filter.entry_ok(&mut entry, true).await {
-								Ok(ok) => ok,
-								_ => {
-									st_log!(time_state, "entry {:?} is deemed bad", entry.date_time());
-									return
-								}
-							};
-
-							if entry_ok {
-								if let Err(err) = fs::create_dir_all(&time_log_dir) {
-									finish!(time_state, "Could not create directory {:?}: {}", time_log_dir, err);
-								}
-
-								// and iterate through the list of files (not the content of the files,
-								// just the list of them) and check if they exist on the computer.
-								for f in get_links(&files_text) {
-									let mut file_log_dir = time_log_dir.clone();
-									file_log_dir.push(f);
-
-									// if they don't exist, append them to the list of files to
-									// download.
-									if !std::path::Path::new(&file_log_dir).exists() {
-										if let Ok(mut check) = time_to_check.lock() {
-											check.push(Download {
-												subdir: format!("{}/{}", entry.date_time(), f),
-												state: time_state.clone(),
-												config: time_conf.clone()
-											});
-										}
-									}
-								}
-							}
-
-							finish!();
-						})
-					});
-
-				futures::future::join_all(time_joins).await;
-
+				finish!();
 			}
 		});
 
-	// just buffer 10 at a time to prevent TCP connection issues
+	// first we buffer checking all the days, so that we don't overload TCP connections
 	futures::stream::iter(day_joins)
-		.buffer_unordered(10)
+		.buffer_unordered(conf.threads)
 		.collect::<Vec<()>>()
 		.await;
 
-	if failed_a_listing.load(Ordering::Relaxed) {
-		return Err(ListingFailed);
+	// swap it out with the mutex-blocked struct so that we can use it outside
+	let mut swap_array = Vec::new();
+	if let Ok(mut helper) = helper.lock() {
+		std::mem::swap(&mut swap_array, &mut helper.times_to_check);
+	}
+
+	if let Ok(mut state) = state.lock() {
+		state.reset("Checking times:".to_owned());
+		state.add_to_size(swap_array.len());
+	}
+
+	// then buffer through checking all the days, once again so that we don't overload
+	futures::stream::iter(swap_array.into_iter()
+		.map(|(day, time)| {
+
+			let mut time_log_dir = sync_dir();
+			time_log_dir.push(&day);
+			time_log_dir.push(&time);
+
+			let time_state = state.clone();
+			let time_conf = conf.clone();
+			let time_filter = filter.clone();
+			let time_helper = helper.clone();
+
+			if let Ok(mut state) = state.lock() {
+				state.add_one_started();
+			}
+
+			let time_url = format!("{}/api/listing/{}/{}", conf.server, day, time);
+
+			async move {
+				macro_rules! finish {
+					() => {
+						if let Ok(mut state) = time_state.lock() {
+							state.finished_one();
+						}
+						return;
+					};
+					($msg:expr$(, $args:expr)*) => {{
+						st_err!(time_state, $msg$(, $args)*);
+						fail_listing!(time_helper);
+						finish!();
+					}}
+				}
+
+				// get the actual text that contains the list of the files in this day/time
+				let files_text = match req_with_auth(&time_url, &*time_conf).await {
+					Ok(f) => match f.text().await {
+						Ok(ft) => ft,
+						Err(err) => finish!("Could not get text for list of files at {}: {}", time_url, err),
+					},
+					Err(err) => finish!("Could not retrieve list of files at {}: {}", time_url, err)
+				};
+
+				let mut entry = Entry::new(day, time, time_conf.clone());
+
+				// check the entry to make sure we should actually download its files
+				let entry_ok = match time_filter.entry_ok(&mut entry, true).await {
+					Ok(ok) => ok,
+					_ => finish!("Failed to get details for entry at {}", time_url),
+				};
+
+				if entry_ok {
+					if let Err(err) = fs::create_dir_all(&time_log_dir) {
+						finish!("Could not create directory {:?}: {}", time_log_dir, err);
+					}
+
+					// iterate over the files...
+					for f in get_links(&files_text) {
+						let mut file_log_dir = time_log_dir.clone();
+						file_log_dir.push(f);
+
+						// ... and if they don't already exist, add them to the
+						// list of files to be downloaded
+						if !std::path::Path::new(&file_log_dir).exists() {
+							if let Ok(mut helper) = time_helper.lock() {
+								helper.to_download.push(Download {
+									subdir: format!("{}/{}", entry.date_time(), f),
+									state: time_state.clone(),
+									config: time_conf.clone()
+								});
+							}
+						}
+					}
+				}
+
+				finish!();
+			}
+		}))
+		.buffer_unordered(conf.threads)
+		.collect::<Vec<()>>()
+		.await;
+
+	// if we were unable to get the list of files in one of the day/times, just return an err
+	if let Ok(helper) = helper.lock() {
+		if helper.failed_listing {
+			return Err(ListingFailed);
+		}
 	}
 
 	// change the progress bar title to reflect that we're downloading individual files now,
@@ -290,8 +291,8 @@ pub async fn sync_logs(
 		state.reset("Downloaded:".to_owned());
 	}
 
-	if let Ok(mut downloads) = to_check.lock() {
-		if downloads.is_empty() {
+	if let Ok(mut helper) = helper.lock() {
+		if helper.to_download.is_empty() {
 			println!("\n✅ You're already all synced up!");
 			return Ok(());
 		}
@@ -299,7 +300,7 @@ pub async fn sync_logs(
 		println!("\nDownloading files...");
 
 		let mut empty = Vec::new();
-		std::mem::swap(&mut *downloads, &mut empty);
+		std::mem::swap(&mut (*helper).to_download, &mut empty);
 
 		return download_files(empty, state, conf).await;
 	};
@@ -324,18 +325,6 @@ pub async fn download_files(
 		files.into_iter().map(|down| {
 			let state_clone = state.clone();
 
-			macro_rules! finish{ () => {
-				if let Ok(mut stt) = state_clone.lock() {
-					stt.finished_one();
-				}
-				return;
-			}}
-
-			// get the url to request and the directory which the file will be written to.
-			let down_url = format!("{}{}", list_url, down.subdir);
-			let mut down_dir = log_dir.clone();
-			down_dir.push(&down.subdir);
-
 			let fail_clone = failed_files.clone();
 
 			macro_rules! fail_file{
@@ -346,6 +335,25 @@ pub async fn download_files(
 				}
 			}
 
+			macro_rules! finish{
+				() => {
+					if let Ok(mut stt) = state_clone.lock() {
+						stt.finished_one();
+					}
+					return;
+				};
+				($msg:expr$(, $args:expr)*) => {{
+					st_err!(down.state, $msg$(, $args)*);
+					fail_file!(down);
+					finish!();
+				}}
+			}
+
+			// get the url to request and the directory which the file will be written to.
+			let down_url = format!("{}{}", list_url, down.subdir);
+			let mut down_dir = log_dir.clone();
+			down_dir.push(&down.subdir);
+
 			// create an async block, which will be what is executed on the `await`
 			async move {
 				if let Ok(mut state) = down.state.lock() {
@@ -355,25 +363,15 @@ pub async fn download_files(
 				st_log!(down.state, "Downloading file \x1b[32;1m{}\x1b[0m", down.subdir);
 				let request = match req_with_auth(&down_url, &*down.config).await {
 					Ok(req) => req,
-					Err(err) => {
-						st_err!(down.state, "Failed to download file {}: {}", down.subdir, err);
-						fail_file!(down);
-						finish!();
-					}
+					Err(err) => finish!("Failed to download file {}: {}", down.subdir, err),
 				};
 
 				match request.text().await {
 					Ok(text) => match fs::write(&down_dir, text.as_bytes()) {
-						Err(err) => {
-							st_err!(down.state, "Couldn't write file to {:?}: {}", down_dir, err);
-							fail_file!(down);
-						},
+						Err(err) => finish!("Couldn't write file to {:?}: {}", down_dir, err),
 						Ok(_) => st_log!(down.state, "✅ Saved file \x1b[32;1m{}\x1b[0m", down.subdir),
 					}
-					Err(err) => {
-						st_err!(down.state, "Failed to get text from downloaded file {}: {}", down.subdir, err);
-						fail_file!(down);
-					}
+					Err(err) => finish!("Failed to get text from downloaded file {}: {}", down.subdir, err),
 				}
 
 				finish!();
@@ -421,7 +419,6 @@ pub struct SyncTracker {
 	pub started: usize,
 	pub done: usize,
 	pub total: usize,
-	pub finalized_size: bool,
 	pub prefix: String,
 }
 
@@ -445,7 +442,7 @@ impl SyncTracker {
 	pub fn update(&mut self, clear: bool) {
 		use std::io::Write;
 
-		if self.done < self.total && !self.finalized_size {
+		if self.done < self.total {
 			let clear = if clear {
 				"\x1b[2K\r"
 			} else {
@@ -457,7 +454,7 @@ impl SyncTracker {
 			let _ = std::io::stdout().flush();
 
 		} else {
-			println!("\x1b[2K\r✨ Finished");
+			println!("\x1b[2K\r✨ Finished with {} items", self.total);
 		}
 	}
 
@@ -467,4 +464,10 @@ impl SyncTracker {
 		self.done = 0;
 		self.started = 0;
 	}
+}
+
+pub struct SyncHelper {
+	pub failed_listing: bool,
+	pub to_download: Vec<Download>,
+	pub times_to_check: Vec<(String, String)>
 }

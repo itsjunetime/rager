@@ -141,7 +141,6 @@ impl Filter {
 			if !entry.is_downloaded() {
 				return Err(FilterErrors::TermFilterBeforeDownloading);
 			}
-
 			// since this is the last condition, we can just return it
 			return Ok(!entry.files_containing_term(term).await?.is_empty());
 		}
@@ -163,7 +162,7 @@ impl Filter {
 
 		let date = match Self::date_array(date) {
 			Some(arr) => arr,
-			_ => return self.ok_unsure,
+			_ => return self.ok_unsure
 		};
 
 		match self.any {
@@ -183,7 +182,7 @@ impl Filter {
 					}
 				}
 
-				true
+				*date != before
 			},
 			None => true
 		}
@@ -200,7 +199,7 @@ impl Filter {
 					}
 				}
 
-				true
+				*date != after
 			},
 			None => true
 		}

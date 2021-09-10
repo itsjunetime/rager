@@ -39,21 +39,12 @@ pub async fn sync_logs(
 	filter: &Arc<Filter>, conf: &Arc<Config>, state: &Arc<Mutex<SyncTracker>>
 ) -> Result<(), errors::SyncErrors> {
 
-	// to_check is vec of all the files that'll need to be downloaded this time. We iterate through
-	// all the entries on the server, check if that file exists on the computer, and if it doesn't,
-	// we add it to this array.
-	//
-	// Then, once we've checked all the files on the server and have a complete list of the ones we
-	// need to download, we pass it into the futures::sream::iter func below and download all of
-	// them through tokio.
-	//let to_download: Arc<Mutex<Vec<Download>>> = Arc::new(Mutex::new(Vec::new()));
-
 	// a convenience struct to wrap a few simple things
 	let helper = Arc::new(Mutex::new(
 		SyncHelper {
-			failed_listing: false,
-			to_download: Vec::new(),
-			times_to_check: Vec::new()
+			failed_listing: false, // if we failed to get a listing of days or times
+			to_download: Vec::new(), // a list of files to download
+			times_to_check: Vec::new() // a list of times to check for files we need to download
 		}
 	));
 
@@ -99,14 +90,6 @@ pub async fn sync_logs(
 
 	println!("Finding the files that need to be downloaded...");
 
-	macro_rules! fail_listing{
-		($mux:expr) => {
-			if let Ok(mut mux) = $mux.lock() {
-				mux.failed_listing = !mux.failed_listing;
-			}
-		}
-	}
-
 	if let Ok(mut state) = state.lock() {
 		state.reset("Checking days:".to_owned());
 		state.add_to_size(day_links.len());
@@ -136,7 +119,9 @@ pub async fn sync_logs(
 				};
 				($msg:expr$(, $args:expr)*) => {{
 					st_err!(day_state, $msg$(, $args)*);
-					fail_listing!(day_helper);
+					if let Ok(mut helper) = day_helper.lock() {
+						helper.failed_listing = !helper.failed_listing;
+					}
 					finish!();
 				}}
 			}
@@ -211,9 +196,11 @@ pub async fn sync_logs(
 				state.add_one_started();
 			}
 
+			// get the url to check the files in this day
 			let time_url = format!("{}/api/listing/{}/{}", conf.server, day, time);
 
 			async move {
+				// a convenience macro to show an error, clean up, and return
 				macro_rules! finish {
 					() => {
 						if let Ok(mut state) = time_state.lock() {
@@ -223,7 +210,9 @@ pub async fn sync_logs(
 					};
 					($msg:expr$(, $args:expr)*) => {{
 						st_err!(time_state, $msg$(, $args)*);
-						fail_listing!(time_helper);
+						if let Ok(mut helper) = time_helper.lock() {
+							helper.failed_listing = !helper.failed_listing;
+						}
 						finish!();
 					}}
 				}
@@ -327,14 +316,6 @@ pub async fn download_files(
 
 			let fail_clone = failed_files.clone();
 
-			macro_rules! fail_file{
-				($file:expr) => {
-					if let Ok(mut files) = fail_clone.lock() {
-						files.push($file);
-					}
-				}
-			}
-
 			macro_rules! finish{
 				() => {
 					if let Ok(mut stt) = state_clone.lock() {
@@ -344,7 +325,9 @@ pub async fn download_files(
 				};
 				($msg:expr$(, $args:expr)*) => {{
 					st_err!(down.state, $msg$(, $args)*);
-					fail_file!(down);
+					if let Ok(mut files) = fail_clone.lock() {
+						files.push(down);
+					}
 					finish!();
 				}}
 			}
@@ -360,12 +343,16 @@ pub async fn download_files(
 					state.add_one_started();
 				}
 
+				// inform that we're downloading the file
 				st_log!(down.state, "Downloading file \x1b[32;1m{}\x1b[0m", down.subdir);
+
+				// actualy download the file
 				let request = match req_with_auth(&down_url, &*down.config).await {
 					Ok(req) => req,
 					Err(err) => finish!("Failed to download file {}: {}", down.subdir, err),
 				};
 
+				// if we can get the text, write it to the file since they're all text files
 				match request.text().await {
 					Ok(text) => match fs::write(&down_dir, text.as_bytes()) {
 						Err(err) => finish!("Couldn't write file to {:?}: {}", down_dir, err),
@@ -381,10 +368,12 @@ pub async fn download_files(
 		.collect::<Vec<()>>()
 		.await;
 
+	// if we did fail to download some files...
 	return match failed_files.lock() {
 		Ok(mut files) => match files.is_empty() {
 			true => Ok(()),
 			_ => {
+				// grab the list of files we failed and return them
 				let mut replace = Vec::new();
 				std::mem::swap(&mut *files, &mut replace);
 				Err(FilesDownloadFailed(replace))
@@ -394,6 +383,7 @@ pub async fn download_files(
 	};
 }
 
+// just get rid of all the logs
 pub fn desync_all() {
 	if let Ok(mut contents) = std::fs::read_dir(&sync_dir()) {
 		while let Some(Ok(path)) = contents.next() {
@@ -409,6 +399,7 @@ pub fn desync_all() {
 	}
 }
 
+// just some nice structs that I don't want to throw elsewhere
 pub struct Download {
 	pub subdir: String,
 	pub state: Arc<Mutex<SyncTracker>>,

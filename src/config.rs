@@ -12,15 +12,18 @@ pub struct Config {
 
 impl Config {
 	pub fn from_file(file: &Option<String>) -> Option<Config> {
-		//let conf = file.unwrap_or_else(Config::default_file_url);
+		// get the file, default if they passed in none
 		let conf = file.as_ref()
 			.map(|f| f.to_owned())
 			.unwrap_or_else(Self::default_file_url);
 
 		match read_to_string(&conf) {
+			// parse it as toml
 			Ok(text) => match text.parse::<toml::Value>() {
 				Ok(val) => if let Some(table) = val.as_table() {
 
+					// a nice macro to get a value from a toml table
+					// and error out if that value doesn't exist
 					macro_rules! get_val{
 						($key:expr, $fn:ident) => {
 							match table.get($key).map(|v| v.$fn()) {
@@ -38,6 +41,7 @@ impl Config {
 					let username = get_val!("username", as_str).to_string();
 					let threads = get_val!("threads", as_integer) as usize;
 
+					// don't error out on this one tho
 					let sync_retry_limit = match table.get("sync-retry-limit").map(|s| s.as_integer()) {
 						Some(Some(i)) => Some(i as usize),
 						_ => None

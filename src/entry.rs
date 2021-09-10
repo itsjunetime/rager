@@ -174,15 +174,6 @@ impl Entry {
 			}
 
 			if let Some(ref links) = self.files {
-				/*self.os = if links.len() == 1 && links[0].starts_with("details.log.gz") {
-					Some(EntryOS::Desktop)
-				} else if links.iter().any(|l| l.starts_with("console")) {
-					Some(EntryOS::iOS)
-				} else if links.iter().any(|l| l.starts_with("logs-")) {
-					Some(EntryOS::Android)
-				} else {
-					None
-				};*/
 				self.os = if links.iter().any(|l| l.starts_with("console")) {
 					Some(EntryOS::iOS)
 				} else {
@@ -236,7 +227,6 @@ impl Entry {
 	pub fn is_downloaded(&self) -> bool {
 		let mut dir = sync_dir();
 		dir.push(self.date_time());
-		//dir.push("details.log.gz");
 
 		std::path::Path::new(&dir).exists()
 	}

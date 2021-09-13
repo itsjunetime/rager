@@ -73,53 +73,43 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 
 	// go through the top level directory and get all the days
 	if let Ok(contents) = fs::read_dir(&sync_dir) {
-		let day_joins = contents.map(|day| {
+		let day_joins = contents.filter_map(|day|
+			day.ok().map(|d| d.path())
+		).map(|day| {
 			// for each of the days ...
-
 			let day_filter = filter.clone();
 			let day_conf = config.clone();
 			let day_match = matches.clone();
 
 			tokio::spawn(async move {
-				// ensure that it's Ok()
-				let day = match day {
-					Ok(day) => day,
-					_ => return
-				};
 
 				// iterate over the times
-				if let Ok(times) = fs::read_dir(&day.path()) {
-					let time_joins = times.map(|time| {
+				if let Ok(times) = fs::read_dir(&day) {
+					let time_joins = times.filter_map(|time|
+						time.ok().map(|t| t.path())
+					).filter_map(|time| {
 						let time_filter = day_filter.clone();
 						let time_conf = day_conf.clone();
 						let time_match = day_match.clone();
 
-						let day_path = day.path();
-
-						tokio::spawn(async move {
-							// make sure each time is Ok()
-							let time_path = match time {
-								Ok(time) => time.path(),
-								_ => return,
-							};
-
-							macro_rules! final_component{
-								($path:ident) => {
-									match $path.file_name() {
-										Some(file_name) => match file_name.to_str() {
-											Some(name) => name.to_owned(),
-											_ => return,
-										},
-										_ => return,
-									}
+						macro_rules! final_component{
+							($path:ident) => {
+								match $path.file_name() {
+									Some(nm) => match nm.to_str() {
+										Some(name) => name.to_owned(),
+										_ => return None,
+									},
+									_ => return None,
 								}
 							}
+						}
 
-							// get the string for the day
-							let day_str = final_component!(day_path);
-							let time_str = final_component!(time_path);
+						// get the string for the day
+						let day_str = final_component!(day);
+						let time_str = final_component!(time);
 
-							let mut entry = Entry::new(day_str, time_str, time_conf);
+						Some(tokio::spawn(async move {
+							let mut entry = Entry::new(day_str.to_string(), time_str.to_string(), time_conf);
 
 							match time_filter.entry_ok(&mut entry, false).await {
 								Err(err) => err!("Error when checking entry: {:?}", err),
@@ -128,7 +118,7 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 								},
 								_ => ()
 							}
-						})
+						}))
 					});
 
 					futures::future::join_all(time_joins).await;

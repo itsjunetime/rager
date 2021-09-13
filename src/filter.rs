@@ -214,7 +214,7 @@ impl Filter {
 
 	pub fn user_ok(&self, user: &str) -> bool {
 		match &self.user {
-			Some(u) => u == user,
+			Some(u) => user.contains(u),
 			None => true
 		}
 	}

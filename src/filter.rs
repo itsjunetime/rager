@@ -16,7 +16,7 @@ pub struct Filter {
 	pub oses: Option<Vec<EntryOS>>,
 	pub before: Option<[u16; 3]>,
 	pub after: Option<[u16; 3]>,
-	pub when: Option<[u16; 3]>,
+	pub when: Option<Vec<[u16; 3]>>,
 	pub user: Option<String>,
 	pub term: Option<String>,
 	pub any: bool,
@@ -74,7 +74,7 @@ impl Filter {
 
 		let before = sync_str_to_arr!("sync-before");
 		let after = sync_str_to_arr!("sync-after");
-		let when = sync_str_to_arr!("sync-when");
+		let when = some_or_none_str!("sync-when", v, (Some(Filter::string_to_dates(v))));
 
 		let user = some_or_none_str!("sync-user", o, (Some(o.to_owned())));
 
@@ -99,6 +99,8 @@ impl Filter {
 	}
 
 	pub async fn entry_ok(&self, entry: &mut Entry, syncing: bool) -> Result<bool, FilterErrors> {
+		// have to make sure they're some 'cause if we have no time specifiers, day_ok
+		// will return true and all entries will get through
 		if (self.before.is_some() || self.after.is_some() || self.when.is_some()) &&
 			self.day_ok(&entry.day) == self.any {
 			return Ok(self.any);
@@ -162,7 +164,7 @@ impl Filter {
 
 		let date = match Self::date_array(date) {
 			Some(arr) => arr,
-			_ => return self.ok_unsure
+			_ => return self.ok_unsure,
 		};
 
 		match self.any {
@@ -207,7 +209,7 @@ impl Filter {
 
 	pub fn when_ok(&self, date: &[u16; 3]) -> bool {
 		match self.when {
-			Some(when) => *date == when,
+			Some(ref when) => when.contains(date),
 			None => true
 		}
 	}
@@ -219,47 +221,45 @@ impl Filter {
 		}
 	}
 
-	pub fn string_to_date_match(whens: &Option<String>) -> Option<Vec<[u16; 3]>> {
-		whens.as_ref()
-			.map(|days| days.split(',')
-				.fold(Vec::new(), |mut mtc, day| {
-					if let Some(day_arr) = Self::date_array(day) {
-						mtc.push(day_arr)
-					} else {
-						let now = chrono::offset::Utc::now();
-						let parse = day.parse::<chrono::Weekday>();
+	pub fn string_to_dates(whens: &str) -> Vec<[u16; 3]> {
+		whens.split(',')
+			.filter_map(Self::string_to_single_date)
+			.collect::<Vec<[u16; 3]>>()
+	}
 
-						let days_ago = if day.starts_with("today") {
-							Some(0)
-						} else if day.starts_with("yesterday") {
-							Some(1)
-						} else if let Ok(entry) = parse {
-							let from_now = now.weekday().num_days_from_sunday();
-							let from_then = entry.num_days_from_sunday();
+	pub fn string_to_single_date(day: &str) -> Option<[u16; 3]> {
+		if let Some(day_arr) = Self::date_array(day) {
+			Some(day_arr)
+		} else {
+			let now = chrono::offset::Utc::now();
 
-							if from_now != from_then {
-								Some((from_now + 7 - from_then) % 7)
-							} else {
-								Some(7)
-							}
-						} else {
-							None
-						};
+			let days_ago = if day.starts_with("today") {
+				Some(0)
+			} else if day.starts_with("yesterday") {
+				Some(1)
+			} else if let Ok(entry) = day.parse::<chrono::Weekday>() {
+				let from_now = now.weekday().num_days_from_sunday();
+				let from_then = entry.num_days_from_sunday();
 
-						if let Some(da) = days_ago {
-							if let Some(date_string) = now.with_day(now.day() - da) {
-								let date = date_string.format("%Y-%m-%d").to_string();
+				if from_now != from_then {
+					Some((from_now + 7 - from_then) % 7)
+				} else {
+					Some(7)
+				}
+			} else {
+				return None
+			};
 
-								if let Some(day_arr) = Self::date_array(&date) {
-									mtc.push(day_arr)
-								}
-							}
-						}
-					}
+			if let Some(da) = days_ago {
+				if let Some(date_string) = now.with_day(now.day() - da) {
+					let date = date_string.format("%Y-%m-%d").to_string();
 
-					mtc
-				})
-			)
+					return Self::date_array(&date)
+				}
+			}
+
+			None
+		}
 	}
 
 	pub fn date_array(input: &str) -> Option<[u16; 3]> {

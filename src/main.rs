@@ -135,7 +135,7 @@ async fn main() {
 		}));
 
 		let mut retried: i8 = 0;
-		
+
 		let mut result = sync::sync_logs(&filter_arc, &conf_arc, &state).await;
 
 		while retried < lim || lim == 0 {
@@ -240,24 +240,20 @@ pub fn filter_and_config(terms: &clap::ArgMatches, syncing: bool) -> Option<(fil
 		None => return None,
 	};
 
-	macro_rules! get_date{
-		($key:expr) => {
-			match terms.value_of($key) {
-				Some(val) => filter::Filter::date_array(val),
-				_ => None
-			};
-		}
-	}
-
 	let user = terms.value_of("user").map(|u| u.to_owned());
 	let term = terms.value_of("term").map(|t| t.to_owned());
 
 	let any = terms.is_present("any");
 	let ok_unsure = terms.is_present("ok_unsure");
 
-	let when = get_date!("when");
-	let before = get_date!("before");
-	let after = get_date!("after");
+	let when = terms.value_of("when")
+		.map(filter::Filter::string_to_dates);
+
+	let before = terms.value_of("before")
+		.and_then(filter::Filter::string_to_single_date);
+
+	let after = terms.value_of("after")
+		.and_then(filter::Filter::string_to_single_date);
 
 	let oses = terms.value_of("os").map(|o|
 		match o.try_into() {

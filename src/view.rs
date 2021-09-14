@@ -85,7 +85,7 @@ pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterE
 
 		pager.set_text(file_contents);
 
-		let prompt_str = format!("{}/{} ({}; {})", 
+		let prompt_str = format!("{}/{} ({}; {})",
 			entry.date_time(),
 			log,
 			entry.user_id.as_ref().unwrap_or(&"unknown".to_owned()),

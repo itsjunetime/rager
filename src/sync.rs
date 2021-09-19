@@ -88,6 +88,11 @@ pub async fn sync_logs(
 
 	let day_links = get_links(&days_text);
 
+	// just filter out the ones that are not ok right off the bat
+	let day_links = day_links.iter()
+		.filter(|d| filter.day_ok(d))
+		.collect::<Vec<_>>();
+
 	println!("Finding the files that need to be downloaded...");
 
 	if let Ok(mut state) = state.lock() {
@@ -105,7 +110,6 @@ pub async fn sync_logs(
 
 			let day_state = state.clone();
 			let day_conf = conf.clone();
-			let day_filter = filter.clone();
 			let day_helper = helper.clone();
 
 			let day_url = format!("{}{}", list_url, day);
@@ -131,12 +135,6 @@ pub async fn sync_logs(
 			async move {
 				if let Ok(mut state) = day_state.lock() {
 					state.add_one_started();
-				}
-
-				// before querying to get the list of entries for a specific day, just
-				// make sure the day itself is allowed. Optimizations.
-				if !day_filter.day_ok(&day) {
-					finish!();
 				}
 
 				let times_text = match req_with_auth(&day_url, &*day_conf).await {

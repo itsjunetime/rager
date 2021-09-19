@@ -16,8 +16,6 @@ cargo build --release
 ## Usage
 Run `rager help` to see all of the options available to you.
 
-At time of writing, the `any` option while searching doesn't work, but this issue should be fixed soon.
-
 ```
 $ rager help
 

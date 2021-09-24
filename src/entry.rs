@@ -182,8 +182,10 @@ impl Entry {
 			}
 		}
 
-		if self.os.is_none() && self.set_download_values().await.is_err() {
-			err!("Failed to determine details of entry {}", self.date_time());
+		if self.os.is_none() {
+			if let Err(err) = self.set_download_values().await {
+				err!("Failed to determine details of entry {}: {}", self.date_time(), err);
+			}
 		}
 
 		Ok(())

@@ -6,13 +6,13 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-reqwest = "0.11.4"
-minus = { version = "4.0.0-alpha5", features = ["static_output", "search"] }
-tokio = { version = "1.7.1", features = ["rt-multi-thread", "macros"] }
+reqwest = "0.11.5"
+minus = { version = "4.0.2", features = ["static_output", "search"] }
+tokio = { version = "1.12", features = ["rt-multi-thread", "macros"] }
 clap = "2.33.3"
 regex = "1.5.4"
-dirs = "3.0.2"
-futures = "0.3.15"
+dirs = "4.0.0"
+futures = "0.3.17"
 chrono = "0.4.19"
 youchoose = "0.1.1"
 toml = "0.5.8"

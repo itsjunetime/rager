@@ -43,12 +43,10 @@ sync-any = true
 # looks for the `Application: ` key in that file to determine the os. Obviously, this can cause syncing to be very slow on slower internet connections.
 #
 # When this is set to `true`, however, it determines the OS of each entry from the list of files contained in the entry.
-# If there is one file, and it is called `details.log.gz`, the OS is determined to be `desktop`.
-# If there is a file called `logs-0000.log.gz` in the entry, the OS is `android`.
-# If there is a file called `console.log.gz` in the entry, the OS is `ios`.
-# If none of these are true, if downloads the `details.log.gz` file anyways and parses that just like normal.
+# If there is any file that starts with `console` in the entry, the OS is `ios`. 
+# Otherwise, it downloads the `details.log.gz` file anyways and parses that just like normal.
 #
-# This key/value is not required, and will default to `false` if not included.
+# This key/value is not required, can speed up syncing, and will default to `false` if not included.
 beeper-hacks = false
 
 # How many times to retry a sync where one or more files failed to download.

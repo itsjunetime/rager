@@ -17,3 +17,8 @@ chrono = "0.4.19"
 youchoose = "0.1.1"
 toml = "0.5.8"
 lazy_static = "1.4.0"
+
+[profile.release]
+opt-level = 2
+lto = "fat"
+codegen-units = 1

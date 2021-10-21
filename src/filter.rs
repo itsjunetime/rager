@@ -68,7 +68,7 @@ impl Filter {
 							None
 						}
 					}
-				));
+				))
 			}
 		}
 

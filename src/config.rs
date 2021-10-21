@@ -32,7 +32,7 @@ impl Config {
 									err!("Your config file does not include the field '{}'", $key);
 									return None;
 								}
-							};
+							}
 						}
 					}
 

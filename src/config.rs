@@ -2,11 +2,19 @@ use std::fs::read_to_string;
 use crate::err;
 
 pub struct Config {
+	// the server to connect to
 	pub server: String,
+	// the username to use to connect
 	pub username: String,
+	// the password to connect with
 	pub password: String,
+	// how many tasks to spawn when syncing
 	pub threads: usize,
+	// whether or not to use hacky methods to determine os
 	pub beeper_hacks: bool,
+	// whether or not to cache detail files of undesireable entries
+	pub cache_details: bool,
+	// how many times to retry
 	pub sync_retry_limit: Option<usize>
 }
 
@@ -50,12 +58,16 @@ impl Config {
 					let beeper_hacks = table.get("beeper-hacks")
 						.map(|v| v.as_bool().unwrap_or(false)).unwrap_or(false);
 
+					let cache_details = table.get("cache-details")
+						.map(|v| v.as_bool().unwrap_or(false)).unwrap_or(false);
+
 					return Some(Config {
 						server,
 						password,
 						username,
 						threads,
 						beeper_hacks,
+						cache_details,
 						sync_retry_limit,
 					})
 				},

@@ -224,7 +224,13 @@ pub async fn sync_logs(
 					Err(err) => finish!("Could not retrieve list of files at {}: {}", time_url, err)
 				};
 
-				let mut entry = Entry::new(day, time, time_conf.clone());
+				let files = get_links(&files_text)
+					.into_iter()
+					.map(|f| f.to_owned())
+					.collect::<Vec<String>>();
+
+				//let mut entry = Entry::new(day, time, time_conf.clone());
+				let mut entry = Entry::with_files(day, time, time_conf.clone(), files);
 
 				// check the entry to make sure we should actually download its files
 				let entry_ok = match time_filter.entry_ok(&mut entry, true).await {
@@ -232,26 +238,46 @@ pub async fn sync_logs(
 					_ => finish!("Failed to get details for entry at {}", time_url),
 				};
 
-				if entry_ok {
+				if entry_ok || time_conf.cache_details {
 					if let Err(err) = fs::create_dir_all(&time_log_dir) {
 						finish!("Could not create directory {:?}: {}", time_log_dir, err);
 					}
+				}
 
+				if entry_ok {
 					// iterate over the files...
-					for f in get_links(&files_text) {
-						let mut file_log_dir = time_log_dir.clone();
-						file_log_dir.push(f);
+					if let Some(ref files) = entry.files {
+						for f in files {
+							let mut file_log_dir = time_log_dir.clone();
+							file_log_dir.push(f);
 
-						// ... and if they don't already exist, add them to the
-						// list of files to be downloaded
-						if !std::path::Path::new(&file_log_dir).exists() {
-							if let Ok(mut helper) = time_helper.lock() {
-								helper.to_download.push(Download {
-									subdir: format!("{}/{}", entry.date_time(), f),
-									state: time_state.clone(),
-									config: time_conf.clone()
-								});
+							// ... and if they don't already exist, add them to the
+							// list of files to be downloaded
+							if !std::path::Path::new(&file_log_dir).exists() {
+								if let Ok(mut helper) = time_helper.lock() {
+									helper.to_download.push(Download {
+										subdir: format!("{}/{}", entry.date_time(), f),
+										is_cache: false,
+										state: time_state.clone(),
+										config: time_conf.clone()
+									});
+								}
 							}
+						}
+					}
+				} else if time_conf.cache_details {
+					let details = "details.log.gz";
+					// just grab the details file for this one
+					time_log_dir.push(details);
+
+					if !std::path::Path::new(&time_log_dir).exists() {
+						if let Ok(mut helper) = time_helper.lock() {
+							helper.to_download.push(Download {
+								subdir: format!("{}/{}", entry.date_time(), details),
+								is_cache: true,
+								state: time_state.clone(),
+								config: time_conf.clone()
+							});
 						}
 					}
 				}
@@ -341,22 +367,40 @@ pub async fn download_files(
 					state.add_one_started();
 				}
 
+				let action = if down.is_cache {
+					"Caching"
+				} else {
+					"Downloading"
+				};
+
 				// inform that we're downloading the file
-				st_log!(down.state, "Downloading file \x1b[32;1m{}\x1b[0m", down.subdir);
+				st_log!(down.state, "{} file \x1b[32;1m{}\x1b[0m", action, down.subdir);
+
+				let fail_action = if down.is_cache {
+					"cache"
+				} else {
+					"download"
+				};
 
 				// actualy download the file
 				let request = match req_with_auth(&down_url, &*down.config).await {
 					Ok(req) => req,
-					Err(err) => finish!("Failed to download file {}: {}", down.subdir, err),
+					Err(err) => finish!("Failed to {} file {}: {}", fail_action, down.subdir, err),
+				};
+
+				let finish_action = if down.is_cache {
+					"Cached"
+				} else {
+					"Saved"
 				};
 
 				// if we can get the text, write it to the file since they're all text files
 				match request.text().await {
 					Ok(text) => match fs::write(&down_dir, text.as_bytes()) {
 						Err(err) => finish!("Couldn't write file to {:?}: {}", down_dir, err),
-						Ok(_) => st_log!(down.state, "✅ Saved file \x1b[32;1m{}\x1b[0m", down.subdir),
+						Ok(_) => st_log!(down.state, "✅ {} file \x1b[32;1m{}\x1b[0m", finish_action, down.subdir),
 					}
-					Err(err) => finish!("Failed to get text from downloaded file {}: {}", down.subdir, err),
+					Err(err) => finish!("Failed to get text from requested file {}: {}", down.subdir, err),
 				}
 
 				finish!();
@@ -383,23 +427,23 @@ pub async fn download_files(
 
 // just get rid of all the logs
 pub fn desync_all() {
-	if let Ok(mut contents) = std::fs::read_dir(&sync_dir()) {
-		while let Some(Ok(path)) = contents.next() {
-			if !path.path().is_dir() {
-				continue;
+	if let Ok(contents) = std::fs::read_dir(&sync_dir()) {
+		contents.filter_map(|c| c.ok()).for_each(|path| {
+			let path_path = path.path();
+			if path_path.is_dir() {
+				match std::fs::remove_dir_all(&path_path) {
+					Ok(_) => println!("Removed logs at {:?}", path_path),
+					Err(err) => err!("Unable to remove logs at {:?}: {}", path_path, err)
+				}
 			}
-
-			match std::fs::remove_dir_all(&path.path()) {
-				Ok(_) => println!("Removed logs at {:?}", path.path()),
-				Err(err) => err!("Unable to remove logs at {:?}: {}", path.path(), err)
-			}
-		}
+		})
 	}
 }
 
 // just some nice structs that I don't want to throw elsewhere
 pub struct Download {
 	pub subdir: String,
+    pub is_cache: bool,
 	pub state: Arc<Mutex<SyncTracker>>,
 	pub config: Arc<config::Config>
 }

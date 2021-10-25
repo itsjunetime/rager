@@ -306,6 +306,8 @@ pub fn filter_and_config(terms: &clap::ArgMatches, syncing: bool) -> Option<(fil
 async fn req_with_auth<U: reqwest::IntoUrl>(url: U, conf: &config::Config) -> reqwest::Result<reqwest::Response> {
 	let client = reqwest::Client::new();
 
+    println!("reqing to '{}'", url.as_str());
+
 	let req = client.get(url)
 		.basic_auth(&conf.username, Some(&conf.password))
 		.build()?;

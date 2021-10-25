@@ -45,6 +45,24 @@ impl Entry {
 		}
 	}
 
+	pub fn with_files(day: String, time: String, config: Arc<config::Config>, files: Vec<String>) -> Entry {
+		// remove possible trailing directory separators
+		let day = day.replace("/", "").replace("\\", "");
+		let time = time.replace("/", "").replace("\\", "");
+
+		Entry {
+			day,
+			time,
+			config,
+			files: Some(files),
+			checked_details: false,
+			reason: None,
+			user_id: None,
+			os: None,
+			version: None
+		}
+	}
+
 	pub fn date_time(&self) -> String {
 		format!("{}/{}", self.day, self.time)
 	}
@@ -53,22 +71,27 @@ impl Entry {
 		let mut sync_dir = sync_dir();
 		sync_dir.push(self.date_time());
 
+        // if we're not forcing it to sync, just get the list of files that are
+        // currently downloaded to the device
 		if !force_sync {
 			if let Ok(contents) = fs::read_dir(&sync_dir) {
-				let files = contents.fold(Vec::new(), | mut files, file | {
-					let file = match file {
-						Ok(file) => file,
-						_ => return files
-					};
-
-					if let Some(file_name) = file.path().file_name() {
-						if let Some(name) = file_name.to_str() {
-							files.push(name.to_owned());
-						}
-					}
-
-					files
-				});
+                // read through the currently downloaded files
+				let files = contents.filter_map(|file| {
+					// if it's ok...
+					file.ok()
+						.and_then(|f|
+							// get the path
+							f.path()
+								// get the file name
+								.file_name()
+								.and_then(|name| 
+									// map it to a string instead of osstr
+									name.to_str()
+										// and take ownership so we can store it
+										.map(|s| s.to_string())
+								)
+						)
+				}).collect::<Vec<String>>();
 
 				self.files = Some(files);
 
@@ -83,6 +106,7 @@ impl Entry {
 
 		let files = get_links(&res_text)
 			.into_iter()
+			// replace possible trailing slashes just in case
 			.map(|l| l.replace("/", ""))
 			.collect::<Vec<String>>();
 
@@ -97,11 +121,11 @@ impl Entry {
 		dir.push(&self.time);
 		dir.push("details.log.gz");
 
+		// if we got the details file downloaded, just use it
 		let contents = match fs::read_to_string(&dir) {
-			Ok(contents) => {
-				contents
-			}
+			Ok(contents) => contents,
 			_ => {
+				// else, download it and use its contents
 				let url = format!("{}/api/listing/{}/details.log.gz", self.config.server, self.date_time());
 
 				let response = req_with_auth(&url, &self.config).await?;
@@ -168,11 +192,14 @@ impl Entry {
 	}
 
 	pub async fn get_and_set_os(&mut self, force_sync: bool) -> Result<(), reqwest::Error> {
+		// if we're using the hacky methods...
 		if self.config.beeper_hacks {
+			// download the list of files first
 			if self.files.is_none() {
 				self.retrieve_file_list(force_sync).await?;
 			}
 
+			// and then iterate through the files and see if we can detect it that way
 			if let Some(ref links) = self.files {
 				self.os = if links.iter().any(|l| l.starts_with("console")) {
 					Some(EntryOS::iOS)

@@ -97,14 +97,17 @@ impl Entry {
 		Ok(())
 	}
 
-	pub async fn set_download_values(&mut self) -> Result<(), reqwest::Error> {
+	pub fn details_file(&self) -> std::path::PathBuf {
 		let mut dir = sync_dir();
 		dir.push(&self.day);
 		dir.push(&self.time);
 		dir.push("details.log.gz");
+		dir
+	}
 
+	pub async fn set_download_values(&mut self) -> Result<(), reqwest::Error> {
 		// if we got the details file downloaded, just use it
-		let contents = match fs::read_to_string(&dir) {
+		let contents = match fs::read_to_string(self.details_file()) {
 			Ok(contents) => contents,
 			_ => {
 				// else, download it and use its contents
@@ -125,10 +128,14 @@ impl Entry {
 				total_found += 1;
 			} else if line.starts_with("Application") {
 
-				if line.contains("android") {
+				let lower = line.to_lowercase();
+
+				if lower.contains("android") {
 					self.os = Some(EntryOS::Android);
-				} else if line.contains("web") || line.contains("desktop") {
+				} else if lower.contains("web") || lower.contains("desktop") {
 					self.os = Some(EntryOS::Desktop);
+				} else if lower.contains("ios") {
+					self.os = Some(EntryOS::iOS);
 				}
 
 				total_found += 1;

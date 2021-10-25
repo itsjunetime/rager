@@ -231,12 +231,10 @@ pub async fn sync_logs(
 
 				if entry_ok {
 
-					// Files are probably downloaded at this point, due to the filter check,
-					// but just in case they aren't, download them now
-					if entry.files.is_none() {
-						if let Err(err) = entry.retrieve_file_list(true).await {
-							finish!("Could not retrieve file list for {:?}: {}", entry.date_time(), err);
-						}
+					// Before now, the filter check just loaded in the list of files
+					// from the device, but since this is an entry we want, we must force sync them
+					if let Err(err) = entry.retrieve_file_list(true).await {
+						finish!("Could not retrieve file list for {:?}: {}", entry.date_time(), err);
 					}
 
 					// iterate over the files, which must be downloaded now

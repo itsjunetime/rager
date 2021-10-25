@@ -106,6 +106,12 @@ impl Filter {
 			return Ok(self.any);
 		}
 
+		if std::path::Path::new(&entry.details_file()).exists() {
+			if let Err(err) = entry.set_download_values().await {
+				err!("Failed to set download details: {}", err);
+			}
+		}
+
 		if self.oses.is_some() {
 			// now get the OS &&  check that as well
 			if entry.get_and_set_os(syncing).await.is_err() {
@@ -114,7 +120,7 @@ impl Filter {
 
 			let os = match &entry.os {
 				Some(os) => os,
-				None => return Ok(self.ok_unsure)
+				None => return Ok(self.ok_unsure),
 			};
 
 			// if (os_ok && self.any) || (!os_ok && !self.any), basically

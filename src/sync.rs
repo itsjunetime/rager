@@ -215,22 +215,7 @@ pub async fn sync_logs(
 					}}
 				}
 
-				// get the actual text that contains the list of the files in this day/time
-				let files_text = match req_with_auth(&time_url, &*time_conf).await {
-					Ok(f) => match f.text().await {
-						Ok(ft) => ft,
-						Err(err) => finish!("Could not get text for list of files at {}: {}", time_url, err),
-					},
-					Err(err) => finish!("Could not retrieve list of files at {}: {}", time_url, err)
-				};
-
-				let files = get_links(&files_text)
-					.into_iter()
-					.map(|f| f.to_owned())
-					.collect::<Vec<String>>();
-
-				//let mut entry = Entry::new(day, time, time_conf.clone());
-				let mut entry = Entry::with_files(day, time, time_conf.clone(), files);
+				let mut entry = Entry::new(day, time, time_conf.clone());
 
 				// check the entry to make sure we should actually download its files
 				let entry_ok = match time_filter.entry_ok(&mut entry, true).await {
@@ -245,7 +230,16 @@ pub async fn sync_logs(
 				}
 
 				if entry_ok {
-					// iterate over the files...
+
+					// Files are probably downloaded at this point, due to the filter check,
+					// but just in case they aren't, download them now
+					if entry.files.is_none() {
+						if let Err(err) = entry.retrieve_file_list(true).await {
+							finish!("Could not retrieve file list for {:?}: {}", entry.date_time(), err);
+						}
+					}
+
+					// iterate over the files, which must be downloaded now
 					if let Some(ref files) = entry.files {
 						for f in files {
 							let mut file_log_dir = time_log_dir.clone();
@@ -443,7 +437,7 @@ pub fn desync_all() {
 // just some nice structs that I don't want to throw elsewhere
 pub struct Download {
 	pub subdir: String,
-    pub is_cache: bool,
+	pub is_cache: bool,
 	pub state: Arc<Mutex<SyncTracker>>,
 	pub config: Arc<config::Config>
 }

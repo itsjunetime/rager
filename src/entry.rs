@@ -45,24 +45,6 @@ impl Entry {
 		}
 	}
 
-	pub fn with_files(day: String, time: String, config: Arc<config::Config>, files: Vec<String>) -> Entry {
-		// remove possible trailing directory separators
-		let day = day.replace("/", "").replace("\\", "");
-		let time = time.replace("/", "").replace("\\", "");
-
-		Entry {
-			day,
-			time,
-			config,
-			files: Some(files),
-			checked_details: false,
-			reason: None,
-			user_id: None,
-			os: None,
-			version: None
-		}
-	}
-
 	pub fn date_time(&self) -> String {
 		format!("{}/{}", self.day, self.time)
 	}
@@ -71,11 +53,11 @@ impl Entry {
 		let mut sync_dir = sync_dir();
 		sync_dir.push(self.date_time());
 
-        // if we're not forcing it to sync, just get the list of files that are
-        // currently downloaded to the device
+		// if we're not forcing it to sync, just get the list of files that are
+		// currently downloaded to the device
 		if !force_sync {
 			if let Ok(contents) = fs::read_dir(&sync_dir) {
-                // read through the currently downloaded files
+				// read through the currently downloaded files
 				let files = contents.filter_map(|file| {
 					// if it's ok...
 					file.ok()
@@ -84,7 +66,7 @@ impl Entry {
 							f.path()
 								// get the file name
 								.file_name()
-								.and_then(|name| 
+								.and_then(|name|
 									// map it to a string instead of osstr
 									name.to_str()
 										// and take ownership so we can store it

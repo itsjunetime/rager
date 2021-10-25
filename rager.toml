@@ -43,11 +43,18 @@ sync-any = true
 # looks for the `Application: ` key in that file to determine the os. Obviously, this can cause syncing to be very slow on slower internet connections.
 #
 # When this is set to `true`, however, it determines the OS of each entry from the list of files contained in the entry.
-# If there is any file that starts with `console` in the entry, the OS is `ios`. 
+# If there is any file that starts with `console` in the entry, the OS is `ios`.
 # Otherwise, it downloads the `details.log.gz` file anyways and parses that just like normal.
 #
 # This key/value is not required, can speed up syncing, and will default to `false` if not included.
 beeper-hacks = false
+
+# Whether or not to cache details.log.gz files of entries that you don't want to fully download
+# This will make incremental syncing much faster, at the small cost of extra time when initially syncing
+# and more space taken up on your machine
+#
+# This key/value is not required, can speed up syncing, and will default to `false` if not included
+cache-details = false
 
 # How many times to retry a sync where one or more files failed to download.
 # If this key/value is not included, rager never retries a sync. If it is included and set to 0,

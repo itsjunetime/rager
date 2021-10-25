@@ -174,7 +174,20 @@ impl Entry {
 	}
 
 	pub async fn get_and_set_os(&mut self, force_sync: bool) -> Result<(), reqwest::Error> {
-		// if we're using the hacky methods...
+		let mut dir = sync_dir();
+		dir.push(&self.day);
+		dir.push(&self.time);
+		dir.push("details.log.gz");
+
+		// if the details file exists, just load it from that
+		if std::path::Path::new(&dir).exists() {
+			match self.set_download_values().await {
+				Err(err) => err!("Failed to determine details of entry {}: {}", self.date_time(), err),
+				_ => return Ok(()),
+			}
+		}
+
+		// else, if we're using the hacky methods...
 		if self.config.beeper_hacks {
 			// download the list of files first
 			if self.files.is_none() {
@@ -191,6 +204,7 @@ impl Entry {
 			}
 		}
 
+		// if neither of the above works, we'll have to download the details file, so do that
 		if self.os.is_none() {
 			if let Err(err) = self.set_download_values().await {
 				err!("Failed to determine details of entry {}: {}", self.date_time(), err);

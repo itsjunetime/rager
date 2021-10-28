@@ -296,21 +296,20 @@ pub async fn sync_logs(
 		state.reset("Downloaded:".to_owned());
 	}
 
-	if let Ok(mut helper) = helper.lock() {
+	let empty = if let Ok(mut helper) = helper.lock() {
 		if helper.to_download.is_empty() {
 			println!("\n✅ You're already all synced up!");
 			return Ok(());
 		}
 
-		println!("\nDownloading files...");
-
-		let mut empty = Vec::new();
-		std::mem::swap(&mut (*helper).to_download, &mut empty);
-
-		return download_files(empty, state, conf).await;
+		std::mem::take(&mut (*helper).to_download)
+	} else {
+		return Ok(());
 	};
 
-	Ok(())
+	println!("\nDownloading files...");
+
+	download_files(empty, state, conf).await
 }
 
 pub async fn download_files(
@@ -359,31 +358,19 @@ pub async fn download_files(
 					state.add_one_started();
 				}
 
-				let action = if down.is_cache {
-					"Caching"
+				let (action, fail_action, finish_action) = if down.is_cache {
+					("Caching", "cache", "Cached")
 				} else {
-					"Downloading"
+					("Downloading", "download", "Saved")
 				};
 
 				// inform that we're downloading the file
 				st_log!(down.state, "{} file \x1b[32;1m{}\x1b[0m", action, down.subdir);
 
-				let fail_action = if down.is_cache {
-					"cache"
-				} else {
-					"download"
-				};
-
 				// actualy download the file
 				let request = match req_with_auth(&down_url, &*down.config).await {
 					Ok(req) => req,
 					Err(err) => finish!("Failed to {} file {}: {}", fail_action, down.subdir, err),
-				};
-
-				let finish_action = if down.is_cache {
-					"Cached"
-				} else {
-					"Saved"
 				};
 
 				// if we can get the text, write it to the file since they're all text files

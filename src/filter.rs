@@ -29,6 +29,9 @@ impl Filter {
 			.map(|f| f.to_owned())
 			.unwrap_or_else(Config::default_file_url);
 
+		// These are all safe to panic! or expect because if the config file was not readable
+		// or invalid toml or whatever, Config::from_file would've caught it and exited the program
+		// before it even reached this
 		let text = fs::read_to_string(&conf)
 			.unwrap_or_else(|_| panic!("Cannot read contents of the config file at {}", conf));
 
@@ -49,13 +52,9 @@ impl Filter {
 
 		let oses = some_or_none_str!("sync-os", o, (
 			Some(o.split(',')
-				.fold(Vec::new(), | mut sp, o | {
-					if let Ok(eos) = o.try_into() {
-						sp.push(eos);
-					}
-
-					sp
-				}))
+				.filter_map(|o| o.try_into().ok())
+				.collect::<Vec<_>>()
+			)
 		));
 
 		macro_rules! sync_str_to_arr{

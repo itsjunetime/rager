@@ -81,6 +81,7 @@ impl Config {
 	}
 
 	pub fn default_file_url() -> String {
+		// safe to unwrap 'cause the documentation says it always returns `Some`
 		let mut config_dir = dirs::config_dir().unwrap();
 		config_dir.push("rager");
 		config_dir.set_extension("toml");

@@ -1,6 +1,7 @@
 use std::fs;
 use crate::{
 	sync_dir,
+	err,
 	entry::Entry,
 	errors::FilterErrors
 };
@@ -50,18 +51,15 @@ pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterE
 	};
 
 	let string_paths = files.iter()
-		.fold(Vec::new(), | mut files, log | {
-			let log_str = if matches.contains(log) {
+		.map(|log| {
+			if matches.contains(log) {
 				format!("{} (matches)", log)
 			} else {
 				log.to_owned()
-			};
-
-			files.push(log_str);
-			files
+			}
 		});
 
-	let mut menu = youchoose::Menu::new(string_paths.iter());
+	let mut menu = youchoose::Menu::new(string_paths);
 	let choice = menu.show();
 
 	if !choice.is_empty() {
@@ -81,7 +79,11 @@ pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterE
 			_ => return Err(FilterErrors::FileReadingFailed),
 		};
 
-		let mut pager = minus::Pager::new().unwrap();
+		let mut pager = minus::Pager::new()
+			.map_err(|err| {
+				err!("Failed to create pager ({:?}); are you sure this is running in a tty?", err);
+				FilterErrors::ViewPagingFailed
+			})?;
 
 		pager.set_text(file_contents);
 

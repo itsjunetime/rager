@@ -258,14 +258,13 @@ pub async fn sync_logs(
 						}
 					}
 				} else if time_conf.cache_details {
-					let details = "details.log.gz";
 					// just grab the details file for this one
-					time_log_dir.push(details);
+					time_log_dir.push(crate::DETAILS);
 
 					if !std::path::Path::new(&time_log_dir).exists() {
 						if let Ok(mut helper) = time_helper.lock() {
 							helper.to_download.push(Download {
-								subdir: format!("{}/{}", entry.date_time(), details),
+								subdir: format!("{}/{}", entry.date_time(), crate::DETAILS),
 								is_cache: true,
 								state: time_state.clone(),
 								config: time_conf.clone()
@@ -393,13 +392,8 @@ pub async fn download_files(
 	return match failed_files.lock() {
 		Ok(mut files) => match files.is_empty() {
 			true => Ok(()),
-			_ => {
-				// grab the list of files we failed and return them
-				let mut replace = Vec::new();
-				std::mem::swap(&mut *files, &mut replace);
-				Err(FilesDownloadFailed(replace))
-			}
-		}
+			_ => Err(FilesDownloadFailed(std::mem::take(&mut *files))),
+		},
 		_ => Ok(())
 	};
 }
@@ -407,14 +401,14 @@ pub async fn download_files(
 // just get rid of all the logs
 pub fn desync_all() {
 	if let Ok(contents) = std::fs::read_dir(&sync_dir()) {
-		contents.filter_map(|c| c.ok()).for_each(|path| {
+		contents.filter_map(|c| c.ok()).filter(|c| c.path().is_dir()).for_each(|path| {
 			let path_path = path.path();
-			if path_path.is_dir() {
+			//if path_path.is_dir() {
 				match std::fs::remove_dir_all(&path_path) {
 					Ok(_) => println!("Removed logs at {:?}", path_path),
 					Err(err) => err!("Unable to remove logs at {:?}: {}", path_path, err)
 				}
-			}
+			//}
 		})
 	}
 }

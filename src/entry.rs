@@ -101,7 +101,7 @@ impl Entry {
 		let mut dir = sync_dir();
 		dir.push(&self.day);
 		dir.push(&self.time);
-		dir.push("details.log.gz");
+		dir.push(crate::DETAILS);
 		dir
 	}
 
@@ -111,7 +111,7 @@ impl Entry {
 			Ok(contents) => contents,
 			_ => {
 				// else, download it and use its contents
-				let url = format!("{}/api/listing/{}/details.log.gz", self.config.server, self.date_time());
+				let url = format!("{}/api/listing/{}/{}", self.config.server, self.date_time(), crate::DETAILS);
 
 				let response = req_with_auth(&url, &self.config).await?;
 				response.text().await?
@@ -181,10 +181,7 @@ impl Entry {
 	}
 
 	pub async fn get_and_set_os(&mut self, force_sync: bool) -> Result<(), reqwest::Error> {
-		let mut dir = sync_dir();
-		dir.push(&self.day);
-		dir.push(&self.time);
-		dir.push("details.log.gz");
+		let dir = self.details_file();
 
 		// if the details file exists, just load it from that
 		if std::path::Path::new(&dir).exists() {
@@ -279,19 +276,18 @@ impl Entry {
 		// iterate through the current list of files, fold them
 		if let Some(files) = &self.files {
 			Ok(files.iter()
-				.fold(Vec::new(), | mut files, file | {
+				.filter_map(|file| {
 					let mut file_dir = dir.clone();
 					file_dir.push(file);
 
 					// if we can read it to string and it matches the regex, push it
 					match fs::read_to_string(&file_dir) {
-						Ok(text) if regex.is_match(&text) => {
-							files.push(file.to_owned());
-							files
-						},
-						_ => files
+						Ok(text) if regex.is_match(&text) => Some(file.to_owned()),
+						_ => None
 					}
-				}))
+				})
+				.collect::<Vec<String>>()
+			)
 		} else {
 			Ok(Vec::new())
 		}

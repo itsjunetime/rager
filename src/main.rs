@@ -14,6 +14,7 @@ mod entry;
 
 const ERR_PREFIX: &str = "\x1b[31;1mERROR:\x1b[0m";
 const WARN_PREFIX: &str = "\x1b[33;1mWARNING:\x1b[0m";
+const DETAILS: &str = "details.log.gz";
 
 #[macro_export]
 macro_rules! err{
@@ -193,6 +194,7 @@ async fn main() {
 		// make sure it matches the regex so we can parse it correctly
 		if !date_regex.is_match(day_time) {
 			err!("Please enter a date that matches the regex {}", regex_str);
+			return;
 		}
 
 		let splits = day_time.split('/').collect::<Vec<&str>>();
@@ -324,11 +326,12 @@ fn get_links(output: &str) -> Vec<&str> {
 	output.split('\n')
 		.collect::<Vec<&str>>()
 		.iter()
-		.fold(Vec::new(), | mut lines, link | {
+		.filter_map(|link| {
 			let splits: Vec<&str> = link.split(&['<', '>'][..]).collect();
 			if splits.len() > 3 {
-				lines.push(splits[2]);
+				return Some(splits[2])
 			}
-			lines
+			None
 		})
+		.collect::<Vec<&str>>()
 }

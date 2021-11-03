@@ -210,9 +210,9 @@ async fn main() {
 			}
 		};
 
-		let mut entry = entry::Entry::new(day, time, config);
+		let entry = entry::Entry::new(day, time, config);
 
-		if let Err(err) = view::view(&mut entry, Vec::new()).await {
+		if let Err(err) = view::view(entry, Vec::new()).await {
 			match err {
 				ViewingBeforeDownloading => err!("Cannot view a file before downloading the entry"),
 				FileRetrievalFailed => err!("Failed to determine list of files in entry"),

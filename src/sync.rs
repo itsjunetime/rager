@@ -392,10 +392,10 @@ pub async fn download_files(
 	// if we did fail to download some files, pull the inner value out of the Arc<Mutex<_>>
 	// and return that with the error
 	let expect_err = "failed_files was passed to a buffer that did not finish";
-	return match Arc::try_unwrap(failed_files).unwrap_or_else(|_| panic!("{}", expect_err)).into_inner() {
+	match Arc::try_unwrap(failed_files).unwrap_or_else(|_| panic!("{}", expect_err)).into_inner() {
 		Ok(files) if !files.is_empty() => Err(FilesDownloadFailed(files)),
 		_ => Ok(())
-	};
+	}
 }
 
 // just get rid of all the logs

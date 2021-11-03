@@ -29,7 +29,10 @@ lazy_static! {
 	static ref URL_REGEX: Regex = Regex::new(r"(?P<url>(_matrix|.well-known)(/[\w%\-@:\.!]+)*)").unwrap();
 }
 
-pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterErrors> {
+pub async fn view(entry: Entry, matches: Vec<String>) -> Result<(), FilterErrors> {
+    // make it mutable
+    let mut entry = entry;
+
 	if !entry.is_downloaded() {
 		return Err(FilterErrors::ViewingBeforeDownloading);
 	}
@@ -68,13 +71,12 @@ pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterE
 
 		println!("Loading in log at {:?}...", stored_loc);
 
-		let file_contents = match fs::read_to_string(stored_loc) {
-			Ok(fc) => fc.lines()
-				.map(colorize_line)
-				.collect::<Vec<String>>()
-				.join("\n"),
-			_ => return Err(FilterErrors::FileReadingFailed),
-		};
+		let file_contents = fs::read_to_string(stored_loc)
+            .map_err(|_| FilterErrors::FileRetrievalFailed)?
+            .lines()
+			.map(colorize_line)
+			.collect::<Vec<String>>()
+			.join("\n");
 
 		let mut pager = minus::Pager::new()
 			.map_err(|err| {
@@ -87,8 +89,8 @@ pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterE
 		let prompt_str = format!("{}/{} ({}; {})",
 			entry.date_time(),
 			log,
-			entry.user_id.as_ref().unwrap_or(&"unknown".to_owned()),
-			entry.reason.as_ref().unwrap_or(&"unknown".to_owned())
+			entry.user_id.unwrap_or_else(|| "unknown".to_owned()),
+			entry.reason.unwrap_or_else(|| "unknown".to_owned())
 		);
 		pager.set_prompt(prompt_str);
 

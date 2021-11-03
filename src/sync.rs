@@ -167,10 +167,11 @@ pub async fn sync_logs(
 		.await;
 
 	// swap it out with the mutex-blocked struct so that we can use it outside
-	let mut swap_array = Vec::new();
-	if let Ok(mut helper) = helper.lock() {
-		std::mem::swap(&mut swap_array, &mut helper.times_to_check);
-	}
+	let swap_array = if let Ok(mut helper) = helper.lock() {
+		std::mem::take(&mut helper.times_to_check)
+	} else {
+		Vec::new()
+	};
 
 	if let Ok(mut state) = state.lock() {
 		state.reset("Checking times:".to_owned());
@@ -295,20 +296,20 @@ pub async fn sync_logs(
 		state.reset("Downloaded:".to_owned());
 	}
 
-	let empty = if let Ok(mut helper) = helper.lock() {
-		if helper.to_download.is_empty() {
+	// The Arc should only have one reference now, so we can try_unwrap it,
+	// then move the value out of the inner mutex and pass it to the download_files
+	let expect_err = "Helper was thrown onto unbuffered task";
+	let downloads = match Arc::try_unwrap(helper).unwrap_or_else(|_| panic!("{}", expect_err)).into_inner() {
+		Ok(helper) if !helper.to_download.is_empty() => helper.to_download,
+		_ => {
 			println!("\n✅ You're already all synced up!");
 			return Ok(());
 		}
-
-		std::mem::take(&mut (*helper).to_download)
-	} else {
-		return Ok(());
 	};
 
 	println!("\nDownloading files...");
 
-	download_files(empty, state, conf).await
+	download_files(downloads, state, conf).await
 }
 
 pub async fn download_files(
@@ -388,12 +389,11 @@ pub async fn download_files(
 		.collect::<Vec<()>>()
 		.await;
 
-	// if we did fail to download some files...
-	return match failed_files.lock() {
-		Ok(mut files) => match files.is_empty() {
-			true => Ok(()),
-			_ => Err(FilesDownloadFailed(std::mem::take(&mut *files))),
-		},
+	// if we did fail to download some files, pull the inner value out of the Arc<Mutex<_>>
+	// and return that with the error
+	let expect_err = "failed_files was passed to a buffer that did not finish";
+	return match Arc::try_unwrap(failed_files).unwrap_or_else(|_| panic!("{}", expect_err)).into_inner() {
+		Ok(files) if !files.is_empty() => Err(FilesDownloadFailed(files)),
 		_ => Ok(())
 	};
 }

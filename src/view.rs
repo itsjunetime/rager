@@ -73,7 +73,7 @@ pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterE
 
 		let file_contents = match fs::read_to_string(stored_loc) {
 			Ok(fc) => fc.lines()
-				.map(|l| colorize_line(l))
+				.map(colorize_line)
 				.collect::<Vec<String>>()
 				.join("\n"),
 			_ => return Err(FilterErrors::FileReadingFailed),

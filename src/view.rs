@@ -39,15 +39,12 @@ pub async fn view(entry: &mut Entry, matches: Vec<String>) -> Result<(), FilterE
 			.map_err(|_| FilterErrors::FileRetrievalFailed)?;
 	}
 
-	macro_rules! p_and_ok { () => {{
-		println!("Huh. Looks like there's no logs for this entry.");
-		return Ok(());
-	}}}
-
 	let files = match &entry.files {
-		None => p_and_ok!(),
-		Some(files) if files.is_empty() => p_and_ok!(),
-		Some(files) => files
+		Some(files) if !files.is_empty() => files,
+        _ => {
+		    println!("Huh. Looks like there's no logs for this entry.");
+		    return Ok(());
+        }
 	};
 
 	let string_paths = files.iter()

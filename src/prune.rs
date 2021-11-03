@@ -35,20 +35,12 @@ pub async fn remove_with_terms(filter: Filter, config: Config) {
 		}
 	}
 
-	// closure for mapping oks to somes
-	let ok_to_some = | c: Result<_, _> | {
-		match c {
-			Ok(co) => Some(co),
-			_ => None
-		}
-	};
-
 	// go back over all the days and remove the directory if there are no more entries in there
 	if let Ok(contents) = fs::read_dir(&log_dir) {
-		for dir in contents.filter_map(ok_to_some) {
-			if let Ok(inner) = fs::read_dir(dir.path()) {
+		for dir in contents.filter_map(Result::ok) {
+			if let Ok(mut inner) = fs::read_dir(dir.path()) {
 				// only delete the directory if it's empty
-				if inner.filter_map(ok_to_some).next().is_none() {
+				if inner.find_map(Result::ok).is_none() {
 					let path = dir.path();
 
 					if let Err(err) = fs::remove_dir_all(&path) {

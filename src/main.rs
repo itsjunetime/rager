@@ -324,14 +324,6 @@ fn sync_dir() -> std::path::PathBuf {
 
 fn get_links(output: &str) -> Vec<&str> {
 	output.split('\n')
-		.collect::<Vec<&str>>()
-		.iter()
-		.filter_map(|link| {
-			let splits: Vec<&str> = link.split(&['<', '>'][..]).collect();
-			if splits.len() > 3 {
-				return Some(splits[2])
-			}
-			None
-		})
+		.filter_map(|link| link.split(&['<', '>'][..]).nth(2))
 		.collect::<Vec<&str>>()
 }

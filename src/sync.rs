@@ -63,7 +63,7 @@ pub async fn sync_logs(
 		warn!("It appears you are syncing for the first time. This may take a while.\n");
 	}
 
-	if filter.oses.is_some() && !conf.beeper_hacks {
+	if filter.oses.is_some() && !(conf.beeper_hacks || conf.cache_details) {
 		warn!("You have a sync filter for specific OS(es). This means that sync may take significantly longer \
 			than expected, since the server will have to check the OS of every entry from the server \
 			before downloading any files.");
@@ -124,7 +124,7 @@ pub async fn sync_logs(
 				($msg:expr$(, $args:expr)*) => {{
 					st_err!(day_state, $msg$(, $args)*);
 					if let Ok(mut helper) = day_helper.lock() {
-						helper.failed_listing = !helper.failed_listing;
+						helper.failed_listing = true;
 					}
 					finish!();
 				}}
@@ -401,16 +401,13 @@ pub async fn download_files(
 // just get rid of all the logs
 pub fn desync_all() {
 	if let Ok(contents) = std::fs::read_dir(&sync_dir()) {
-		contents.filter_map(|c| c.ok()).filter(|c| c.path().is_dir()).for_each(|path| {
-			let path_path = path.path();
-			//if path_path.is_dir() {
-				match std::fs::remove_dir_all(&path_path) {
-					Ok(_) => println!("Removed logs at {:?}", path_path),
-					Err(err) => err!("Unable to remove logs at {:?}: {}", path_path, err)
-				}
-			//}
-		})
-	}
+        for path in contents.filter_map(|c| c.ok().map(|p| p.path())).filter(|p| p.is_dir()) {
+            match std::fs::remove_dir_all(&path) {
+                Ok(_) => println!("Removed logs at {:?}", path),
+                Err(err) => err!("Unable to remove logs at {:?}: {}", path, err)
+            }
+        }
+    }
 }
 
 // just some nice structs that I don't want to throw elsewhere

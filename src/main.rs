@@ -325,5 +325,6 @@ fn sync_dir() -> std::path::PathBuf {
 fn get_links(output: &str) -> Vec<&str> {
 	output.split('\n')
 		.filter_map(|link| link.split(&['<', '>'][..]).nth(2))
+		.filter(|s| !s.is_empty())
 		.collect::<Vec<&str>>()
 }

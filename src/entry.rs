@@ -76,23 +76,27 @@ impl Entry {
 				}).collect::<Vec<String>>();
 
 				self.files = Some(files);
-
-				return Ok(());
 			}
+		} else {
+
+			let url = format!("{}/api/listing/{}", self.config.server, self.date_time());
+
+			let response = req_with_auth(&url, &self.config).await?;
+			let res_text = response.text().await?;
+
+			let files = get_links(&res_text)
+				.into_iter()
+				// replace possible trailing slashes just in case
+				.map(|l| l.replace("/", ""))
+				.collect::<Vec<String>>();
+
+			self.files = Some(files);
 		}
 
-		let url = format!("{}/api/listing/{}", self.config.server, self.date_time());
-
-		let response = req_with_auth(&url, &self.config).await?;
-		let res_text = response.text().await?;
-
-		let files = get_links(&res_text)
-			.into_iter()
-			// replace possible trailing slashes just in case
-			.map(|l| l.replace("/", ""))
-			.collect::<Vec<String>>();
-
-		self.files = Some(files);
+		if let Some(ref mut f) = self.files {
+			// sort the files
+			f.sort();
+		}
 
 		Ok(())
 	}

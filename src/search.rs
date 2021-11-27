@@ -1,5 +1,3 @@
-#![allow(non_camel_case_types)]
-
 use crate::{config::Config, entry::Entry, filter::Filter, *};
 use std::{
 	fs,
@@ -50,7 +48,7 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 				_ => None,
 			};
 
-			if let Err(err) = view::view(entry, entries.unwrap_or_default()).await {
+			if let Err(err) = view::view(entry, None, entries).await {
 				match err {
 					ViewingBeforeDownloading => {
 						err!("Cannot view a file before downloading the entry")

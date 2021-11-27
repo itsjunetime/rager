@@ -27,10 +27,11 @@ lazy_static! {
 		Regex::new(r"(?P<url>(_matrix|.well-known)(/[\w%\-@:\.!]+)*)").unwrap();
 }
 
-pub async fn view(entry: Entry, matches: Vec<String>) -> Result<(), FilterErrors> {
-	// make it mutable
-	let mut entry = entry;
-
+pub async fn view(
+	mut entry: Entry,
+	file: Option<String>,
+	matches: Option<Vec<String>>,
+) -> Result<(), FilterErrors> {
 	if !entry.is_downloaded() {
 		return Err(FilterErrors::ViewingBeforeDownloading);
 	}
@@ -51,22 +52,24 @@ pub async fn view(entry: Entry, matches: Vec<String>) -> Result<(), FilterErrors
 	};
 
 	let string_paths = files.iter().map(|log| {
-		if matches.contains(log) {
+		if matches.is_some() && matches.as_ref().unwrap().contains(log) {
 			format!("{} (matches)", log)
 		} else {
 			log.to_owned()
 		}
 	});
 
-	let mut menu = youchoose::Menu::new(string_paths);
-	let choice = menu.show();
+	let to_show = file.or_else(|| {
+		let mut menu = youchoose::Menu::new(string_paths);
+		let choice = menu.show();
 
-	if !choice.is_empty() {
-		let log = &files[choice[0]];
+		choice.get(0).map(|idx| files[*idx].to_owned())
+	});
 
+	if let Some(log) = to_show {
 		let mut stored_loc = sync_dir();
 		stored_loc.push(entry.date_time());
-		stored_loc.push(log);
+		stored_loc.push(&log);
 
 		println!("Loading in log at {:?}...", stored_loc);
 

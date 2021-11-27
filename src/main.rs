@@ -35,49 +35,49 @@ async fn main() {
 	macro_rules! subcommand_search {
 		($name:expr, $about:expr) => {
 			App::new($name)
-							.about($about)
-							.arg(
-								Arg::with_name("user")
-									.short("u")
-									.long("user")
-									.help("Select logs from a specific user")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("when")
-									.short("w")
-									.long("when")
-									.help("Select logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("term")
-									.short("t")
-									.long("term")
-									.help("Select logs containing a specific term (rust-flavored regex supported)")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("os")
-									.short("o")
-									.long("os")
-									.help("Select logs from a specific OS (either 'ios', 'android', or 'desktop')")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("before")
-									.short("b")
-									.long("before")
-									.help("Select logs before a certain date")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("after")
-									.short("a")
-									.long("after")
-									.help("Select logs from after a certain date")
-									.takes_value(true),
-							)
+				.about($about)
+				.arg(
+					Arg::with_name("user")
+						.short("u")
+						.long("user")
+						.help("Select logs from a specific user")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::with_name("when")
+						.short("w")
+						.long("when")
+						.help("Select logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::with_name("term")
+						.short("t")
+						.long("term")
+						.help("Select logs containing a specific term (rust-flavored regex supported)")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::with_name("os")
+						.short("o")
+						.long("os")
+						.help("Select logs from a specific OS (either 'ios', 'android', or 'desktop')")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::with_name("before")
+						.short("b")
+						.long("before")
+						.help("Select logs before a certain date")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::with_name("after")
+						.short("a")
+						.long("after")
+						.help("Select logs from after a certain date")
+						.takes_value(true),
+				)
 		};
 	}
 
@@ -114,7 +114,7 @@ async fn main() {
 				Arg::with_name("entry")
 					.index(1)
 					.required(true)
-					.help("The entry (e.g. '2021-07-08/161300') to view the logs for")
+					.help("The entry (e.g. '2021-07-08/161300') or file (e.g. '2021-07-08/161300/details.log.gz') to view the logs for")
 					.takes_value(true),
 			),
 		)
@@ -206,18 +206,33 @@ async fn main() {
 		// safe to unwrap 'cause Clap would catch if it wasn't included
 		let day_time = args.value_of("entry").unwrap();
 
-		let regex_str = r"\d{4}-\d{2}-\d{2}/\d{6}";
-		let date_regex = regex::Regex::new(regex_str).unwrap();
+		let mut dir = sync_dir();
+		dir.push(day_time);
 
 		// make sure it matches the regex so we can parse it correctly
-		if !date_regex.is_match(day_time) {
-			err!("Please enter a date that matches the regex {}", regex_str);
+		if !dir.as_path().exists() {
+			err!(
+				"Entry/file '{}' does not exist or is not downloaded",
+				day_time
+			);
 			return;
 		}
 
-		let splits = day_time.split('/').collect::<Vec<&str>>();
-		let day = splits[0].to_owned();
-		let time = splits[1].to_owned();
+		let mut splits = day_time.split('/');
+		let day = splits
+			.next()
+			.expect("Splits somehow doesn't even have a 0th index")
+			.to_owned();
+
+		let time = match splits.next() {
+			Some(t) => t.to_owned(),
+			_ => {
+				err!("You must enter at least a day and time to view");
+				return;
+			}
+		};
+
+		let file = splits.next().map(ToOwned::to_owned);
 
 		let config_file = args.value_of("config").map(|c| c.to_owned());
 		let config = match config::Config::from_file(&config_file) {
@@ -230,7 +245,7 @@ async fn main() {
 
 		let entry = entry::Entry::new(day, time, config);
 
-		if let Err(err) = view::view(entry, Vec::new()).await {
+		if let Err(err) = view::view(entry, file, None).await {
 			match err {
 				ViewingBeforeDownloading => err!("Cannot view a file before downloading the entry"),
 				FileRetrievalFailed => err!("Failed to determine list of files in entry"),

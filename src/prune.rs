@@ -1,14 +1,5 @@
-use crate::{
-	err,
-	sync_dir,
-	search::entries_with_filter,
-	filter::Filter,
-	config::Config
-};
-use std::{
-	sync::Arc,
-	fs
-};
+use crate::{config::Config, err, filter::Filter, search::entries_with_filter, sync_dir};
+use std::{fs, sync::Arc};
 
 pub async fn remove_with_terms(filter: Filter, config: Config) {
 	let filter_arc = Arc::new(filter);
@@ -17,7 +8,6 @@ pub async fn remove_with_terms(filter: Filter, config: Config) {
 	let log_dir = sync_dir();
 
 	if let Some(entries) = entries_with_filter(&filter_arc, &config_arc).await {
-
 		// if there are none, tell them
 		if entries.is_empty() {
 			println!("Your conditions did not turn up any results :(");
@@ -30,7 +20,7 @@ pub async fn remove_with_terms(filter: Filter, config: Config) {
 
 			match std::fs::remove_dir_all(&entry_dir) {
 				Err(err) => err!("Could not remove logs at {:?}: {}", entry_dir, err),
-				_ => println!("Deleted entry at {:?}", entry_dir)
+				_ => println!("Deleted entry at {:?}", entry_dir),
 			}
 		}
 	}

@@ -1,12 +1,7 @@
-use std::fs;
-use crate::{
-	sync_dir,
-	err,
-	entry::Entry,
-	errors::FilterErrors
-};
-use regex::Regex;
+use crate::{entry::Entry, err, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
+use regex::Regex;
+use std::fs;
 
 const NULL_COLOR: &str = "\x1b[31;1m";
 const NS_COLOR: &str = "\x1b[32;1m";
@@ -22,42 +17,46 @@ lazy_static! {
 	static ref NULL_REGEX: Regex = Regex::new(r"\(null\)").unwrap();
 	static ref NS_REGEX: Regex = Regex::new(r"(?P<id>\[[a-zA-Z]+\])").unwrap();
 	static ref HEX_REGEX: Regex = Regex::new(r"(?P<hex>0x[a-fA-F0-9]+)").unwrap();
-	static ref NUM_REGEX: Regex = Regex::new(r"(?P<bfr>([^\w]|^))(?P<num>#?\d+((\.|\-|:)\d+)*)(?P<aft>[^\w])").unwrap();
-	static ref FN_REGEX: Regex = Regex::new(r" (?P<fn>[a-z]+[A-Z][a-zA-Z]*)(?P<aft>(:| ))").unwrap();
+	static ref NUM_REGEX: Regex =
+		Regex::new(r"(?P<bfr>([^\w]|^))(?P<num>#?\d+((\.|\-|:)\d+)*)(?P<aft>[^\w])").unwrap();
+	static ref FN_REGEX: Regex =
+		Regex::new(r" (?P<fn>[a-z]+[A-Z][a-zA-Z]*)(?P<aft>(:| ))").unwrap();
 	static ref USER_REGEX: Regex = Regex::new(r"(?P<user>@[\w=]+:[^\.]+(\.[a-z]+)+)").unwrap();
 	static ref ROOM_REGEX: Regex = Regex::new(r"(?P<room>![a-zA-Z]+:[a-z]+(\.[a-z]+)+)").unwrap();
-	static ref URL_REGEX: Regex = Regex::new(r"(?P<url>(_matrix|.well-known)(/[\w%\-@:\.!]+)*)").unwrap();
+	static ref URL_REGEX: Regex =
+		Regex::new(r"(?P<url>(_matrix|.well-known)(/[\w%\-@:\.!]+)*)").unwrap();
 }
 
 pub async fn view(entry: Entry, matches: Vec<String>) -> Result<(), FilterErrors> {
-    // make it mutable
-    let mut entry = entry;
+	// make it mutable
+	let mut entry = entry;
 
 	if !entry.is_downloaded() {
 		return Err(FilterErrors::ViewingBeforeDownloading);
 	}
 
 	if entry.files.is_none() {
-		entry.retrieve_file_list(false).await
+		entry
+			.retrieve_file_list(false)
+			.await
 			.map_err(|_| FilterErrors::FileRetrievalFailed)?;
 	}
 
 	let files = match &entry.files {
 		Some(files) if !files.is_empty() => files,
-        _ => {
-		    println!("Huh. Looks like there's no logs for this entry.");
-		    return Ok(());
-        }
+		_ => {
+			println!("Huh. Looks like there's no logs for this entry.");
+			return Ok(());
+		}
 	};
 
-	let string_paths = files.iter()
-		.map(|log| {
-			if matches.contains(log) {
-				format!("{} (matches)", log)
-			} else {
-				log.to_owned()
-			}
-		});
+	let string_paths = files.iter().map(|log| {
+		if matches.contains(log) {
+			format!("{} (matches)", log)
+		} else {
+			log.to_owned()
+		}
+	});
 
 	let mut menu = youchoose::Menu::new(string_paths);
 	let choice = menu.show();
@@ -72,21 +71,24 @@ pub async fn view(entry: Entry, matches: Vec<String>) -> Result<(), FilterErrors
 		println!("Loading in log at {:?}...", stored_loc);
 
 		let file_contents = fs::read_to_string(stored_loc)
-            .map_err(|_| FilterErrors::FileRetrievalFailed)?
-            .lines()
+			.map_err(|_| FilterErrors::FileRetrievalFailed)?
+			.lines()
 			.map(colorize_line)
 			.collect::<Vec<String>>()
 			.join("\n");
 
-		let mut pager = minus::Pager::new()
-			.map_err(|err| {
-				err!("Failed to create pager ({:?}); are you sure this is running in a tty?", err);
-				FilterErrors::ViewPagingFailed
-			})?;
+		let mut pager = minus::Pager::new().map_err(|err| {
+			err!(
+				"Failed to create pager ({:?}); are you sure this is running in a tty?",
+				err
+			);
+			FilterErrors::ViewPagingFailed
+		})?;
 
 		pager.set_text(file_contents);
 
-		let prompt_str = format!("{}/{} ({}; {})",
+		let prompt_str = format!(
+			"{}/{} ({}; {})",
 			entry.date_time(),
 			log,
 			entry.user_id.unwrap_or_else(|| "unknown".to_owned()),

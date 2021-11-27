@@ -1,16 +1,16 @@
 use clap::{App, Arg};
-use std::sync::{Arc, Mutex};
-use std::convert::TryInto;
 use errors::FilterErrors::*;
+use std::convert::TryInto;
+use std::sync::{Arc, Mutex};
 
-mod sync;
-mod search;
 mod config;
-mod view;
-mod prune;
+mod entry;
 mod errors;
 mod filter;
-mod entry;
+mod prune;
+mod search;
+mod sync;
+mod view;
 
 const ERR_PREFIX: &str = "\x1b[31;1mERROR:\x1b[0m";
 const WARN_PREFIX: &str = "\x1b[33;1mWARNING:\x1b[0m";
@@ -32,70 +32,92 @@ macro_rules! warn{
 
 #[tokio::main]
 async fn main() {
-	macro_rules! subcommand_search{
+	macro_rules! subcommand_search {
 		($name:expr, $about:expr) => {
 			App::new($name)
-				.about($about)
-				.arg(Arg::with_name("user")
-					.short("u")
-					.long("user")
-					.help("Select logs from a specific user")
-					.takes_value(true))
-				.arg(Arg::with_name("when")
-					.short("w")
-					.long("when")
-					.help("Select logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
-					.takes_value(true))
-				.arg(Arg::with_name("term")
-					.short("t")
-					.long("term")
-					.help("Select logs containing a specific term (rust-flavored regex supported)")
-					.takes_value(true))
-				.arg(Arg::with_name("os")
-					.short("o")
-					.long("os")
-					.help("Select logs from a specific OS (either 'ios', 'android', or 'desktop')")
-					.takes_value(true))
-				.arg(Arg::with_name("before")
-					.short("b")
-					.long("before")
-					.help("Select logs before a certain date")
-					.takes_value(true))
-				.arg(Arg::with_name("after")
-					.short("a")
-					.long("after")
-					.help("Select logs from after a certain date")
-					.takes_value(true))
-		}
+							.about($about)
+							.arg(
+								Arg::with_name("user")
+									.short("u")
+									.long("user")
+									.help("Select logs from a specific user")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("when")
+									.short("w")
+									.long("when")
+									.help("Select logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("term")
+									.short("t")
+									.long("term")
+									.help("Select logs containing a specific term (rust-flavored regex supported)")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("os")
+									.short("o")
+									.long("os")
+									.help("Select logs from a specific OS (either 'ios', 'android', or 'desktop')")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("before")
+									.short("b")
+									.long("before")
+									.help("Select logs before a certain date")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("after")
+									.short("a")
+									.long("after")
+									.help("Select logs from after a certain date")
+									.takes_value(true),
+							)
+		};
 	}
 
 	let matches = App::new("Rager")
 		.version("1.0")
 		.author("Ian Welker <@janshai:beeper.com>")
-		.subcommand(subcommand_search!("sync", "Download all the logs from the server that you don't currently have on your device")
-			.arg(Arg::with_name("config")
-				.short("c")
-				.help("The TOML config file to use when syncing. Located at ~/.config/rager.toml (on linux) by default")
-				.takes_value(true))
-			.arg(Arg::with_name("threads")
-				.short("s")
-				.help("How many threads to spawn while downloading. WARNING: this can cause panics when set too high. Recommended value is around 50.")
-				.takes_value(true)))
-		.subcommand(App::new("desync")
-			.about("Clear all logs off of your device"))
-		.subcommand(subcommand_search!("search", "Search through the logs currently on your device")
-			.arg(Arg::with_name("preview")
-				.short("p")
-				.long("preview")
-				.help("See only an overview of the selected issue, as opposed to viewing any of the logs")
-				.takes_value(false)))
-		.subcommand(App::new("view")
-			.about("View a specific Entry")
-			.arg(Arg::with_name("entry")
-				.index(1)
-				.required(true)
-				.help("The entry (e.g. '2021-07-08/161300') to view the logs for")
-				.takes_value(true)))
+		.subcommand(
+			subcommand_search!("sync", "Download all the logs from the server that you don't currently have on your device")
+				.arg(
+					Arg::with_name("config")
+						.short("c")
+						.help("The TOML config file to use when syncing. Located at ~/.config/rager.toml (on linux) by default")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::with_name("threads")
+						.short("s")
+						.help("How many threads to spawn while downloading. WARNING: this can cause panics when set too high. Recommended value is around 50.")
+						.takes_value(true),
+				),
+		)
+		.subcommand(App::new("desync").about("Clear all logs off of your device"))
+		.subcommand(
+			subcommand_search!("search", "Search through the logs currently on your device").arg(
+				Arg::with_name("preview")
+					.short("p")
+					.long("preview")
+					.help("See only an overview of the selected issue, as opposed to viewing any of the logs")
+					.takes_value(false),
+			),
+		)
+		.subcommand(
+			App::new("view").about("View a specific Entry").arg(
+				Arg::with_name("entry")
+					.index(1)
+					.required(true)
+					.help("The entry (e.g. '2021-07-08/161300') to view the logs for")
+					.takes_value(true),
+			),
+		)
 		.subcommand(subcommand_search!("prune", "Delete all entries that match the terms"))
 		.get_matches();
 
@@ -144,7 +166,6 @@ async fn main() {
 				Err(err) => {
 					retried += 1;
 
-
 					match err {
 						errors::SyncErrors::ListingFailed => {
 							if let Ok(mut state) = state.lock() {
@@ -153,7 +174,7 @@ async fn main() {
 
 							println!("\nRager was unable to get a full list of directories; trying again...");
 							result = sync::sync_logs(&filter_arc, &conf_arc, &state).await;
-						},
+						}
 						errors::SyncErrors::FilesDownloadFailed(files) => {
 							if let Ok(mut state) = state.lock() {
 								state.reset("Downloaded:".to_owned());
@@ -161,17 +182,14 @@ async fn main() {
 
 							println!("\nSome files failed to download. Retrying them...");
 							result = sync::download_files(files, &state, &conf_arc).await;
-						},
+						}
 					}
-				},
+				}
 				_ => break,
 			}
 		}
-
 	} else if matches.subcommand_matches("desync").is_some() {
-
 		sync::desync_all()
-
 	} else if let Some(args) = matches.subcommand_matches("search") {
 		let view = !args.is_present("preview");
 
@@ -218,7 +236,7 @@ async fn main() {
 				FileRetrievalFailed => err!("Failed to determine list of files in entry"),
 				FileReadingFailed => err!("Failed to read specified file"),
 				ViewPagingFailed => err!("Failed to display file on page"),
-				_ => ()
+				_ => (),
 			}
 		}
 	} else if let Some(args) = matches.subcommand_matches("prune") {
@@ -235,7 +253,10 @@ async fn main() {
 	}
 }
 
-pub fn filter_and_config(terms: &clap::ArgMatches, syncing: bool) -> Option<(filter::Filter, config::Config)> {
+pub fn filter_and_config(
+	terms: &clap::ArgMatches,
+	syncing: bool,
+) -> Option<(filter::Filter, config::Config)> {
 	let config_file = terms.value_of("config").map(|c| c.to_owned());
 	let config = match config::Config::from_file(&config_file) {
 		Some(conf) => conf,
@@ -248,24 +269,23 @@ pub fn filter_and_config(terms: &clap::ArgMatches, syncing: bool) -> Option<(fil
 	let any = terms.is_present("any");
 	let ok_unsure = terms.is_present("ok_unsure");
 
-	let when = terms.value_of("when")
-		.map(filter::Filter::string_to_dates);
+	let when = terms.value_of("when").map(filter::Filter::string_to_dates);
 
-	let before = terms.value_of("before")
+	let before = terms
+		.value_of("before")
 		.and_then(filter::Filter::string_to_single_date);
 
-	let after = terms.value_of("after")
+	let after = terms
+		.value_of("after")
 		.and_then(filter::Filter::string_to_single_date);
 
-	let oses = terms.value_of("os").map(|o|
-		match o.try_into() {
-			Ok(entry) => vec![entry],
-			Err(err) => {
-				err!("{}", err);
-				std::process::exit(1);
-			}
+	let oses = terms.value_of("os").map(|o| match o.try_into() {
+		Ok(entry) => vec![entry],
+		Err(err) => {
+			err!("{}", err);
+			std::process::exit(1);
 		}
-	);
+	});
 
 	let ret_filter = if syncing {
 		let mut ret_filter = filter::Filter::from_config_file(&config_file);
@@ -298,17 +318,21 @@ pub fn filter_and_config(terms: &clap::ArgMatches, syncing: bool) -> Option<(fil
 			after,
 			oses,
 			any,
-			ok_unsure
+			ok_unsure,
 		}
 	};
 
 	Some((ret_filter, config))
 }
 
-async fn req_with_auth<U: reqwest::IntoUrl>(url: U, conf: &config::Config) -> reqwest::Result<reqwest::Response> {
+async fn req_with_auth<U: reqwest::IntoUrl>(
+	url: U,
+	conf: &config::Config,
+) -> reqwest::Result<reqwest::Response> {
 	let client = reqwest::Client::new();
 
-	let req = client.get(url)
+	let req = client
+		.get(url)
 		.basic_auth(&conf.username, Some(&conf.password))
 		.build()?;
 
@@ -323,7 +347,8 @@ fn sync_dir() -> std::path::PathBuf {
 }
 
 fn get_links(output: &str) -> Vec<&str> {
-	output.split('\n')
+	output
+		.split('\n')
 		.filter_map(|link| link.split(&['<', '>'][..]).nth(2))
 		.filter(|s| !s.is_empty())
 		.collect::<Vec<&str>>()

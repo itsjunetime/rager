@@ -1,6 +1,6 @@
 pub enum SyncErrors {
 	ListingFailed,
-	FilesDownloadFailed(Vec<crate::sync::Download>)
+	FilesDownloadFailed(Vec<crate::sync::Download>),
 }
 
 #[derive(Debug)]
@@ -10,5 +10,5 @@ pub enum FilterErrors {
 	ViewingBeforeDownloading,
 	FileRetrievalFailed,
 	FileReadingFailed,
-	ViewPagingFailed
+	ViewPagingFailed,
 }

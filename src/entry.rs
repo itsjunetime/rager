@@ -1,21 +1,10 @@
 #![allow(non_camel_case_types)]
 
-use std::{
-	convert::TryFrom,
-	fs,
-	sync::Arc
-};
-use crate::{
-	err,
-	sync_dir,
-	get_links,
-	req_with_auth,
-	config,
-	errors::FilterErrors
-};
+use crate::{config, err, errors::FilterErrors, get_links, req_with_auth, sync_dir};
+use std::{convert::TryFrom, fs, sync::Arc};
 
 pub struct Entry {
-	pub day: String, // e.g. `20210721`
+	pub day: String,  // e.g. `20210721`
 	pub time: String, // e.g. `022901`
 	pub checked_details: bool,
 	pub files: Option<Vec<String>>,
@@ -23,7 +12,7 @@ pub struct Entry {
 	pub user_id: Option<String>,
 	pub os: Option<EntryOS>,
 	pub version: Option<String>,
-	pub config: Arc<config::Config>
+	pub config: Arc<config::Config>,
 }
 
 impl Entry {
@@ -41,7 +30,7 @@ impl Entry {
 			reason: None,
 			user_id: None,
 			os: None,
-			version: None
+			version: None,
 		}
 	}
 
@@ -58,10 +47,10 @@ impl Entry {
 		if !force_sync {
 			if let Ok(contents) = fs::read_dir(&sync_dir) {
 				// read through the currently downloaded files
-				let files = contents.filter_map(|file| {
-					// if it's ok...
-					file.ok()
-						.and_then(|f|
+				let files = contents
+					.filter_map(|file| {
+						// if it's ok...
+						file.ok().and_then(|f|
 							// get the path
 							f.path()
 								// get the file name
@@ -71,14 +60,13 @@ impl Entry {
 									name.to_str()
 										// and take ownership so we can store it
 										.map(|s| s.to_string())
-								)
-						)
-				}).collect::<Vec<String>>();
+								))
+					})
+					.collect::<Vec<String>>();
 
 				self.files = Some(files);
 			}
 		} else {
-
 			let url = format!("{}/api/listing/{}", self.config.server, self.date_time());
 
 			let response = req_with_auth(&url, &self.config).await?;
@@ -115,7 +103,12 @@ impl Entry {
 			Ok(contents) => contents,
 			_ => {
 				// else, download it and use its contents
-				let url = format!("{}/api/listing/{}/{}", self.config.server, self.date_time(), crate::DETAILS);
+				let url = format!(
+					"{}/api/listing/{}/{}",
+					self.config.server,
+					self.date_time(),
+					crate::DETAILS
+				);
 
 				let response = req_with_auth(&url, &self.config).await?;
 				response.text().await?
@@ -131,7 +124,6 @@ impl Entry {
 
 				total_found += 1;
 			} else if line.starts_with("Application") {
-
 				let lower = line.to_lowercase();
 
 				if lower.contains("android") {
@@ -167,7 +159,7 @@ impl Entry {
 
 					self.version = match self.version {
 						Some(ref vers) => Some(format!("{} ({})", vers, build)),
-						None => Some(build)
+						None => Some(build),
 					};
 				}
 
@@ -190,7 +182,11 @@ impl Entry {
 		// if the details file exists, just load it from that
 		if std::path::Path::new(&dir).exists() {
 			match self.set_download_values().await {
-				Err(err) => err!("Failed to determine details of entry {}: {}", self.date_time(), err),
+				Err(err) => err!(
+					"Failed to determine details of entry {}: {}",
+					self.date_time(),
+					err
+				),
 				_ => return Ok(()),
 			}
 		}
@@ -215,7 +211,11 @@ impl Entry {
 		// if neither of the above works, we'll have to download the details file, so do that
 		if self.os.is_none() {
 			if let Err(err) = self.set_download_values().await {
-				err!("Failed to determine details of entry {}: {}", self.date_time(), err);
+				err!(
+					"Failed to determine details of entry {}: {}",
+					self.date_time(),
+					err
+				);
 			}
 		}
 
@@ -225,27 +225,29 @@ impl Entry {
 	pub fn description(&self) -> String {
 		let unknown = "unknown".to_owned();
 
-		format!("\x1b[1m{}\x1b[0m: {}\n\
+		format!(
+			"\x1b[1m{}\x1b[0m: {}\n\
 			\tOS:       \x1b[32;1m{}\x1b[0m\n\
 			\tVersion:  \x1b[32;1m{}\x1b[0m\n\
 			\tLocation: {:?}\n",
-				self.user_id.as_ref().unwrap_or(&unknown),
-				self.reason.as_ref().unwrap_or(&unknown),
-				match self.os {
-					Some(EntryOS::iOS) => "iOS",
-					Some(EntryOS::Android) => "Android",
-					Some(EntryOS::Desktop) => "Desktop",
-					None => "unknown",
-				},
-				self.version.as_ref().unwrap_or(&unknown),
-				self.date_time()
-			)
+			self.user_id.as_ref().unwrap_or(&unknown),
+			self.reason.as_ref().unwrap_or(&unknown),
+			match self.os {
+				Some(EntryOS::iOS) => "iOS",
+				Some(EntryOS::Android) => "Android",
+				Some(EntryOS::Desktop) => "Desktop",
+				None => "unknown",
+			},
+			self.version.as_ref().unwrap_or(&unknown),
+			self.date_time()
+		)
 	}
 
 	pub fn selectable_description(&self) -> String {
 		let unknown = "unknown".to_owned();
 
-		format!("{} ({}): {}",
+		format!(
+			"{} ({}): {}",
 			self.user_id.as_ref().unwrap_or(&unknown),
 			match self.os {
 				Some(EntryOS::iOS) => "iOS",
@@ -267,7 +269,7 @@ impl Entry {
 	pub async fn files_containing_term(&mut self, term: &str) -> Result<Vec<String>, FilterErrors> {
 		let regex = match regex::Regex::new(term) {
 			Ok(rg) => rg,
-			_ => return Err(FilterErrors::BadRegexTerm)
+			_ => return Err(FilterErrors::BadRegexTerm),
 		};
 
 		let mut dir = sync_dir();
@@ -279,7 +281,8 @@ impl Entry {
 
 		// iterate through the current list of files, fold them
 		if let Some(files) = &self.files {
-			Ok(files.iter()
+			Ok(files
+				.iter()
 				.filter_map(|file| {
 					let mut file_dir = dir.clone();
 					file_dir.push(file);
@@ -287,11 +290,10 @@ impl Entry {
 					// if we can read it to string and it matches the regex, push it
 					match fs::read_to_string(&file_dir) {
 						Ok(text) if regex.is_match(&text) => Some(file.to_owned()),
-						_ => None
+						_ => None,
 					}
 				})
-				.collect::<Vec<String>>()
-			)
+				.collect::<Vec<String>>())
 		} else {
 			Ok(Vec::new())
 		}
@@ -302,7 +304,7 @@ impl Entry {
 pub enum EntryOS {
 	iOS,
 	Android,
-	Desktop
+	Desktop,
 }
 
 impl ToString for EntryOS {
@@ -310,7 +312,7 @@ impl ToString for EntryOS {
 		match self {
 			EntryOS::iOS => "iOS".to_owned(),
 			EntryOS::Android => "Android".to_owned(),
-			EntryOS::Desktop => "Desktop".to_owned()
+			EntryOS::Desktop => "Desktop".to_owned(),
 		}
 	}
 }

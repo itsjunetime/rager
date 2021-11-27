@@ -1,15 +1,11 @@
 use crate::{
+	config::Config,
+	entry::{Entry, EntryOS},
 	err,
 	errors::FilterErrors,
-	entry::{EntryOS, Entry},
-	config::Config
-};
-use std::{
-	cmp::Ordering,
-	fs,
-	convert::TryInto
 };
 use chrono::Datelike;
+use std::{cmp::Ordering, convert::TryInto, fs};
 
 #[derive(Debug)]
 pub struct Filter {
@@ -25,7 +21,8 @@ pub struct Filter {
 
 impl Filter {
 	pub fn from_config_file(file: &Option<String>) -> Filter {
-		let conf = file.as_ref()
+		let conf = file
+			.as_ref()
 			.map(|f| f.to_owned())
 			.unwrap_or_else(Config::default_file_url);
 
@@ -35,40 +32,49 @@ impl Filter {
 		let text = fs::read_to_string(&conf)
 			.unwrap_or_else(|_| panic!("Cannot read contents of the config file at {}", conf));
 
-		let val = text.parse::<toml::Value>().expect("Your config file does not have valid toml syntax");
-		let table = val.as_table().expect("Your config file is not a valid toml table");
+		let val = text
+			.parse::<toml::Value>()
+			.expect("Your config file does not have valid toml syntax");
+		let table = val
+			.as_table()
+			.expect("Your config file is not a valid toml table");
 
-		macro_rules! some_or_none_str{
+		macro_rules! some_or_none_str {
 			($key:expr, $val:ident, $cl:tt) => {
 				match table.get($key) {
 					Some(higher) => match higher.as_str() {
 						Some($val) => $cl,
 						None => None,
 					},
-					None => None
+					None => None,
 				}
-			}
+			};
 		}
 
-		let oses = some_or_none_str!("sync-os", o, (
-			Some(o.split(',')
-				.filter_map(|o| o.try_into().ok())
-				.collect::<Vec<_>>()
-			)
-		));
+		let oses = some_or_none_str!(
+			"sync-os",
+			o,
+			(Some(
+				o.split(',')
+					.filter_map(|o| o.try_into().ok())
+					.collect::<Vec<_>>()
+			))
+		);
 
-		macro_rules! sync_str_to_arr{
+		macro_rules! sync_str_to_arr {
 			($key:expr) => {
-				some_or_none_str!($key, v, (
-					match Filter::date_array(v) {
+				some_or_none_str!(
+					$key,
+					v,
+					(match Filter::date_array(v) {
 						Some(arr) => Some(arr),
 						_ => {
 							err!("Your {} key does not match ISO-8601 format", $key);
 							None
 						}
-					}
-				))
-			}
+					})
+				)
+			};
 		}
 
 		let before = sync_str_to_arr!("sync-before");
@@ -77,13 +83,12 @@ impl Filter {
 
 		let user = some_or_none_str!("sync-user", o, (Some(o.to_owned())));
 
-		let any = some_or_none_str!("sync-any", o, (
-			Some(o.parse::<bool>().unwrap_or(false))
-		)).unwrap_or(false);
+		let any = some_or_none_str!("sync-any", o, (Some(o.parse::<bool>().unwrap_or(false))))
+			.unwrap_or(false);
 
-		let ok_unsure = some_or_none_str!("sync-unsure", o, (
-			Some(o.parse::<bool>().unwrap_or(false))
-		)).unwrap_or(false);
+		let ok_unsure =
+			some_or_none_str!("sync-unsure", o, (Some(o.parse::<bool>().unwrap_or(false))))
+				.unwrap_or(false);
 
 		Filter {
 			oses,
@@ -100,8 +105,9 @@ impl Filter {
 	pub async fn entry_ok(&self, entry: &mut Entry, syncing: bool) -> Result<bool, FilterErrors> {
 		// have to make sure they're some 'cause if we have no time specifiers, day_ok
 		// will return true and all entries will get through
-		if (self.before.is_some() || self.after.is_some() || self.when.is_some()) &&
-			self.day_ok(&entry.day) == self.any {
+		if (self.before.is_some() || self.after.is_some() || self.when.is_some())
+			&& self.day_ok(&entry.day) == self.any
+		{
 			return Ok(self.any);
 		}
 
@@ -114,7 +120,7 @@ impl Filter {
 		if self.oses.is_some() {
 			// now get the OS &&  check that as well
 			if entry.get_and_set_os(syncing).await.is_err() {
-				return Ok(self.ok_unsure)
+				return Ok(self.ok_unsure);
 			}
 
 			let os = match &entry.os {
@@ -136,7 +142,7 @@ impl Filter {
 
 			let user = match &entry.user_id {
 				Some(user) => user,
-				None => return Ok(self.ok_unsure)
+				None => return Ok(self.ok_unsure),
 			};
 
 			if self.user_ok(user) == self.any {
@@ -174,7 +180,7 @@ impl Filter {
 
 		match self.any {
 			true => self.before_ok(&date) || self.after_ok(&date) || self.when_ok(&date),
-			_ => self.before_ok(&date) && self.after_ok(&date) && self.when_ok(&date)
+			_ => self.before_ok(&date) && self.after_ok(&date) && self.when_ok(&date),
 		}
 	}
 
@@ -185,13 +191,13 @@ impl Filter {
 					match b.cmp(s) {
 						Ordering::Greater => break,
 						Ordering::Less => return false,
-						_ => ()
+						_ => (),
 					}
 				}
 
 				*date != before
-			},
-			None => true
+			}
+			None => true,
 		}
 	}
 
@@ -202,32 +208,33 @@ impl Filter {
 					match a.cmp(s) {
 						Ordering::Greater => return false,
 						Ordering::Less => break,
-						_ => ()
+						_ => (),
 					}
 				}
 
 				*date != after
-			},
-			None => true
+			}
+			None => true,
 		}
 	}
 
 	pub fn when_ok(&self, date: &[u16; 3]) -> bool {
 		match self.when {
 			Some(ref when) => when.contains(date),
-			None => true
+			None => true,
 		}
 	}
 
 	pub fn user_ok(&self, user: &str) -> bool {
 		match &self.user {
 			Some(u) => user.contains(u),
-			None => true
+			None => true,
 		}
 	}
 
 	pub fn string_to_dates(whens: &str) -> Vec<[u16; 3]> {
-		whens.split(',')
+		whens
+			.split(',')
 			.filter_map(Self::string_to_single_date)
 			.collect::<Vec<[u16; 3]>>()
 	}
@@ -252,14 +259,14 @@ impl Filter {
 					Some(7)
 				}
 			} else {
-				return None
+				return None;
 			};
 
 			if let Some(da) = days_ago {
 				if let Some(date_string) = now.with_day(now.day() - da) {
 					let date = date_string.format("%Y-%m-%d").to_string();
 
-					return Self::date_array(&date)
+					return Self::date_array(&date);
 				}
 			}
 
@@ -276,13 +283,13 @@ impl Filter {
 			return None;
 		}
 
-		macro_rules! get_split{
+		macro_rules! get_split {
 			($idx:expr) => {
 				match splits[$idx].parse::<u16>() {
 					Ok(val) => val,
 					_ => return None,
 				}
-			}
+			};
 		}
 
 		let first = get_split!(0);

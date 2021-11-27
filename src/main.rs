@@ -3,6 +3,7 @@ use errors::FilterErrors::*;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
+mod completion;
 mod config;
 mod entry;
 mod errors;
@@ -35,51 +36,57 @@ async fn main() {
 	macro_rules! subcommand_search {
 		($name:expr, $about:expr) => {
 			App::new($name)
-				.about($about)
-				.arg(
-					Arg::with_name("user")
-						.short("u")
-						.long("user")
-						.help("Select logs from a specific user")
-						.takes_value(true),
-				)
-				.arg(
-					Arg::with_name("when")
-						.short("w")
-						.long("when")
-						.help("Select logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
-						.takes_value(true),
-				)
-				.arg(
-					Arg::with_name("term")
-						.short("t")
-						.long("term")
-						.help("Select logs containing a specific term (rust-flavored regex supported)")
-						.takes_value(true),
-				)
-				.arg(
-					Arg::with_name("os")
-						.short("o")
-						.long("os")
-						.help("Select logs from a specific OS (either 'ios', 'android', or 'desktop')")
-						.takes_value(true),
-				)
-				.arg(
-					Arg::with_name("before")
-						.short("b")
-						.long("before")
-						.help("Select logs before a certain date")
-						.takes_value(true),
-				)
-				.arg(
-					Arg::with_name("after")
-						.short("a")
-						.long("after")
-						.help("Select logs from after a certain date")
-						.takes_value(true),
-				)
+							.about($about)
+							.arg(
+								Arg::with_name("user")
+									.short("u")
+									.long("user")
+									.help("Select logs from a specific user")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("when")
+									.short("w")
+									.long("when")
+									.help("Select logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("term")
+									.short("t")
+									.long("term")
+									.help("Select logs containing a specific term (rust-flavored regex supported)")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("os")
+									.short("o")
+									.long("os")
+									.help("Select logs from a specific OS (either 'ios', 'android', or 'desktop')")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("before")
+									.short("b")
+									.long("before")
+									.help("Select logs before a certain date")
+									.takes_value(true),
+							)
+							.arg(
+								Arg::with_name("after")
+									.short("a")
+									.long("after")
+									.help("Select logs from after a certain date")
+									.takes_value(true),
+							)
 		};
 	}
+
+	let sep_char = if cfg!(windows) {
+		'\\'
+	} else {
+		'/'
+	};
 
 	let matches = App::new("Rager")
 		.version("1.0")
@@ -114,11 +121,27 @@ async fn main() {
 				Arg::with_name("entry")
 					.index(1)
 					.required(true)
-					.help("The entry (e.g. '2021-07-08/161300') or file (e.g. '2021-07-08/161300/details.log.gz') to view the logs for")
+					.help(&format!("The entry (e.g. '2021-07-08{c}161300') or file (e.g. '2021-07-08{c}161300{c}details.log.gz') to view the logs for", c = sep_char))
 					.takes_value(true),
 			),
 		)
 		.subcommand(subcommand_search!("prune", "Delete all entries that match the terms"))
+		.subcommand(
+			App::new("complete")
+				.about("List completions for view command")
+				.arg(
+					Arg::with_name("input")
+						.index(1)
+						.help("The input to get completions for")
+						.takes_value(true)
+				)
+				.arg(
+					Arg::with_name("install")
+						.help("Install completion to your $SHELL")
+						.short("i")
+						.long("install")
+				)
+		)
 		.get_matches();
 
 	if let Some(args) = matches.subcommand_matches("sync") {
@@ -265,6 +288,12 @@ async fn main() {
 		};
 
 		prune::remove_with_terms(filter, config).await;
+	} else if let Some(args) = matches.subcommand_matches("complete") {
+		if args.is_present("install") {
+			completion::install_completion();
+		} else if let Some(input) = args.value_of("input") {
+			completion::list_completions(input);
+		}
 	}
 }
 

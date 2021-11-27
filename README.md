@@ -20,7 +20,7 @@ Run `rager help` to see all of the options available to you.
 $ rager help
 
 Rager 1.0
-Ian Welker <@janshai:beeper.com>
+Ian Welker <@ian:beeper.com>
 
 USAGE:
     rager [SUBCOMMAND]
@@ -30,11 +30,16 @@ FLAGS:
     -V, --version    Prints version information
 
 SUBCOMMANDS:
-    desync    Clear all logs off of your device
-    help      Prints this message or the help of the given subcommand(s)
-    prune     Delete all entries that match the terms
-    search    Search through the logs currently on your device
-    sync      Download all the logs from the server that you don't currently have on your device
-    view      View a specific Entry
+    complete    List completions for view command
+    desync      Clear all logs off of your device
+    help        Prints this message or the help of the given subcommand(s)
+    prune       Delete all entries that match the terms
+    search      Search through the logs currently on your device
+    sync        Download all the logs from the server that you don't currently have on your device
+    view        View a specific Entry
 
 ```
+
+## Completion
+
+Rager offers shell tab completions for the `view` subcommand, as long as you run `rager complete --install` and follow its prompts.

@@ -417,7 +417,7 @@ pub async fn download_files(
 
 // just get rid of all the logs
 pub fn desync_all() {
-	if let Ok(contents) = std::fs::read_dir(&sync_dir()) {
+	if let Ok(contents) = sync_dir().read_dir() {
 		for path in contents
 			.filter_map(|c| c.ok().map(|p| p.path()))
 			.filter(|p| p.is_dir())

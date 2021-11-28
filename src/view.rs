@@ -13,6 +13,9 @@ const ROOM_COLOR: &str = "\x1b[33;3m";
 const URL_COLOR: &str = "\x1b[31;3m";
 const RESET: &str = "\x1b[0m";
 
+const SECTIONS: usize = 4;
+const LAST_CHARS: [&str; SECTIONS] = [" ", "▎", "▌", "▊"];
+
 lazy_static! {
 	static ref NULL_REGEX: Regex = Regex::new(r"\(null\)").unwrap();
 	static ref NS_REGEX: Regex = Regex::new(r"(?P<id>\[[a-zA-Z]+\])").unwrap();
@@ -36,6 +39,7 @@ pub async fn view(
 		return Err(FilterErrors::ViewingBeforeDownloading);
 	}
 
+	// Get the list of files if it's not yet loaded into memory
 	if entry.files.is_none() {
 		entry
 			.retrieve_file_list(false)
@@ -43,6 +47,16 @@ pub async fn view(
 			.map_err(|_| FilterErrors::FileRetrievalFailed)?;
 	}
 
+	// this may be the case if we are viewing this directly.
+	// we only do this if these two are none since they are the two displayed on the prompt
+	if entry.user_id.is_none() || entry.reason.is_none() {
+		entry
+			.set_download_values()
+			.await
+			.map_err(|_| FilterErrors::FileRetrievalFailed)?;
+	}
+
+	// grab the files, return if there are none
 	let files = match &entry.files {
 		Some(files) if !files.is_empty() => files,
 		_ => {
@@ -51,6 +65,7 @@ pub async fn view(
 		}
 	};
 
+	// the list of files, formatted to show a string if they match
 	let string_paths = files.iter().map(|log| {
 		if matches.is_some() && matches.as_ref().unwrap().contains(log) {
 			format!("{} (matches)", log)
@@ -67,18 +82,61 @@ pub async fn view(
 	});
 
 	if let Some(log) = to_show {
+		use std::io::Write;
+
 		let mut stored_loc = sync_dir();
 		stored_loc.push(entry.date_time());
 		stored_loc.push(&log);
 
-		println!("Loading in log at {:?}...", stored_loc);
+		println!("Loading in log at {:?}...\n", stored_loc);
 
-		let file_contents = fs::read_to_string(stored_loc)
-			.map_err(|_| FilterErrors::FileRetrievalFailed)?
+		let lines =
+			fs::read_to_string(stored_loc).map_err(|_| FilterErrors::FileRetrievalFailed)?;
+
+		let line_len = lines.lines().count();
+
+		let term_width = 40;
+		let mut orig_perc = 0;
+
+		// ok so we colorize the lines here and also print a nifty little loading bar while doing
+		// so, but don't worry - it doesn't slow down loading at all (in my tests)
+		let file_contents = lines
 			.lines()
-			.map(colorize_line)
+			.enumerate()
+			.map(|(idx, line)| {
+				// calculate percentages to print out a nice little loading thing
+				let perc = (((idx + 1) as f64 / line_len as f64) * (term_width * SECTIONS) as f64)
+					as usize;
+
+				if perc != orig_perc {
+					orig_perc = perc;
+
+					// get the character in the middle that won't be completely empty or full
+					let last_char = LAST_CHARS[perc % SECTIONS];
+
+					// print out the progress bar, resetting the cursor and clearing the line
+					print!(
+						"\x1b[2K\rLoading... [{}{}{}]",
+						"█".repeat(perc / SECTIONS),
+						if idx == line_len - 1 {
+							""
+						} else {
+							last_char
+						},
+						" ".repeat(term_width - (perc / SECTIONS))
+					);
+					// flush stdout so that it actually goes to the screen
+					let _ = std::io::stdout().flush();
+				}
+
+				// and colorize the line
+				colorize_line(line)
+			})
 			.collect::<Vec<String>>()
 			.join("\n");
+
+		// so that we can get a pretty newline after printing the colorize loading bar
+		println!();
 
 		let mut pager = minus::Pager::new().map_err(|err| {
 			err!(
@@ -90,6 +148,7 @@ pub async fn view(
 
 		pager.set_text(file_contents);
 
+		// set a nice prompt with all the details that we want them to see
 		let prompt_str = format!(
 			"{}/{} ({}; {})",
 			entry.date_time(),
@@ -106,6 +165,7 @@ pub async fn view(
 }
 
 fn colorize_line(line: &str) -> String {
+	// ya know, I wish there was a better/faster way of doing this. But I simply don't know what.
 	let res = NUM_REGEX.replace_all(line, format!("$bfr{}$num{}$aft", NUM_COLOR, RESET));
 	let res = NS_REGEX.replace_all(&res, format!("{}$id{}", NS_COLOR, RESET));
 	let res = FN_REGEX.replace_all(&res, format!(" {}$fn{}$aft", FN_COLOR, RESET));

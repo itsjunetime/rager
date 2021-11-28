@@ -92,12 +92,12 @@ pub fn list_completions(input: &str) {
 pub fn install_completion() {
 	use std::io::Write;
 
-	let mut input = String::new();
-	let stdin = std::io::stdin();
-
+	// find what shell we should install completion for
 	let (file, install_str) = match std::env::var("SHELL") {
+		// only support these two for now...
 		Ok(var) if var.contains("zsh") => (".zshrc", ZSH_INSTALL),
 		Ok(var) if var.contains("bash") => (".bashrc", BASH_INSTALL),
+		// for others, just show an error and return
 		Ok(x) => {
 			if x.is_empty() {
 				println!("The env var $SHELL is empty; aborting");
@@ -112,27 +112,35 @@ pub fn install_completion() {
 		}
 	};
 
+	// show a quick explanation for what will happen if they continue
 	println!(
 		"To install shell completion for rager, we need to append the following lines to your ~/{}:\
-		\n{}\
+		\n\x1b[1m{}\x1b[0m\
 		\nIs that ok? [y/n]",
 		file,
 		install_str
 	);
 
-	stdin
+	// actually get their input to make sure it's ok
+	let mut input = String::new();
+
+	std::io::stdin()
 		.read_line(&mut input)
 		.expect("Did not enter text correctly");
 
+	// if it's ok...
 	if input.to_lowercase().starts_with('y') {
+		// get the actual file we want to write to
 		let mut path = dirs::home_dir().unwrap();
 		path.push(file);
 
+		// open it up, appending and creating if it doesn't exist
 		let shell_file = std::fs::OpenOptions::new()
 			.append(true)
 			.create(true)
 			.open(&path);
 
+		// try to write, print status based on if it worked or not
 		match shell_file {
 			Ok(mut f) => match f.write(install_str.as_bytes()) {
 				Err(err) => err!("Unable to write to file at {:?} ({:?}); are you sure you have the right permissions?", path, err),

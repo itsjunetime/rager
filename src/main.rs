@@ -1,3 +1,5 @@
+#![warn(clippy::all)]
+
 use clap::{App, Arg};
 use errors::FilterErrors::*;
 use std::convert::TryInto;
@@ -302,10 +304,7 @@ pub fn filter_and_config(
 	syncing: bool,
 ) -> Option<(filter::Filter, config::Config)> {
 	let config_file = terms.value_of("config").map(|c| c.to_owned());
-	let config = match config::Config::from_file(&config_file) {
-		Some(conf) => conf,
-		None => return None,
-	};
+	let config = config::Config::from_file(&config_file)?;
 
 	let user = terms.value_of("user").map(|u| u.to_owned());
 	let term = terms.value_of("term").map(|t| t.to_owned());

@@ -54,11 +54,11 @@ impl Config {
 						let threads = get_val!("threads", as_integer) as usize;
 
 						// don't error out on this one tho
-						let sync_retry_limit =
-							match table.get("sync-retry-limit").map(|s| s.as_integer()) {
-								Some(Some(i)) => Some(i as usize),
-								_ => None,
-							};
+						let sync_retry_limit = table
+							.get("sync-retry-limit")
+							.map(|s| s.as_integer())
+							.flatten()
+							.map(|i| i as usize);
 
 						let beeper_hacks = table
 							.get("beeper-hacks")

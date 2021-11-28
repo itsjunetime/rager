@@ -539,9 +539,9 @@ checksum = "2a60c7ce501c71e03a9c9c0d35b861413ae925bd979cc7a4e30d060069aaac8d"
 
 [[package]]
 name = "minus"
-version = "4.0.2"
+version = "4.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0cfa68574733d70c28177f9608f2cd10f298ed109f55a900078886a90cbc265"
+checksum = "889afab69851ff8a414e158a803f74f5ed629d31ec03f31a49fcfbc02b712181"
 dependencies = [
  "crossterm",
  "regex",

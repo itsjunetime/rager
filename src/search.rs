@@ -46,10 +46,7 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 		if view {
 			// get the entries that contain the specified term so we can pass it to the view fn
 			let entries = match filter_arc.term.as_ref() {
-				Some(term) => match entry.files_containing_term(term).await {
-					Ok(fil) => Some(fil),
-					_ => None,
-				},
+				Some(term) => entry.files_containing_term(term).await.ok(),
 				_ => None,
 			};
 
@@ -97,13 +94,10 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 
 								macro_rules! final_component {
 									($path:ident) => {
-										match $path.file_name() {
-											Some(nm) => match nm.to_str() {
-												Some(name) => name.to_owned(),
-												_ => return None,
-											},
-											_ => return None,
-										}
+										$path
+											.file_name()
+											.and_then(|nm| nm.to_str())
+											.map(|name| name.to_owned())?
 									};
 								}
 

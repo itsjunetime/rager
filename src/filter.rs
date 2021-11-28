@@ -41,13 +41,10 @@ impl Filter {
 
 		macro_rules! some_or_none_str {
 			($key:expr, $val:ident, $cl:tt) => {
-				match table.get($key) {
-					Some(higher) => match higher.as_str() {
-						Some($val) => $cl,
-						None => None,
-					},
-					None => None,
-				}
+				table
+					.get($key)
+					.and_then(|higher| higher.as_str())
+					.and_then(|$val| $cl)
 			};
 		}
 
@@ -66,13 +63,10 @@ impl Filter {
 				some_or_none_str!(
 					$key,
 					v,
-					(match Filter::date_array(v) {
-						Some(arr) => Some(arr),
-						_ => {
-							err!("Your {} key does not match ISO-8601 format", $key);
-							None
-						}
-					})
+					(Filter::date_array(v).or_else(|| {
+						err!("Your {} key does not match ISO-8601 format", $key);
+						None
+					}))
 				)
 			};
 		}
@@ -162,10 +156,10 @@ impl Filter {
 	}
 
 	pub fn os_ok(&self, os: &EntryOS) -> bool {
-		match &self.oses {
-			Some(oses) => oses.contains(os),
-			None => true,
-		}
+		self.oses
+			.as_ref()
+			.map(|oses| oses.contains(os))
+			.unwrap_or(true)
 	}
 
 	pub fn day_ok(&self, date: &str) -> bool {
@@ -185,8 +179,8 @@ impl Filter {
 	}
 
 	pub fn before_ok(&self, date: &[u16; 3]) -> bool {
-		match self.before {
-			Some(before) => {
+		self.before
+			.map(|before| {
 				for (b, s) in before.iter().zip(date) {
 					match b.cmp(s) {
 						Ordering::Greater => break,
@@ -196,14 +190,13 @@ impl Filter {
 				}
 
 				*date != before
-			}
-			None => true,
-		}
+			})
+			.unwrap_or(true)
 	}
 
 	pub fn after_ok(&self, date: &[u16; 3]) -> bool {
-		match self.after {
-			Some(after) => {
+		self.after
+			.map(|after| {
 				for (a, s) in after.iter().zip(date) {
 					match a.cmp(s) {
 						Ordering::Greater => return false,
@@ -213,23 +206,19 @@ impl Filter {
 				}
 
 				*date != after
-			}
-			None => true,
-		}
+			})
+			.unwrap_or(true)
 	}
 
 	pub fn when_ok(&self, date: &[u16; 3]) -> bool {
-		match self.when {
-			Some(ref when) => when.contains(date),
-			None => true,
-		}
+		self.when
+			.as_ref()
+			.map(|when| when.contains(date))
+			.unwrap_or(true)
 	}
 
 	pub fn user_ok(&self, user: &str) -> bool {
-		match &self.user {
-			Some(u) => user.contains(u),
-			None => true,
-		}
+		self.user.as_ref().map(|u| user.contains(u)).unwrap_or(true)
 	}
 
 	pub fn string_to_dates(whens: &str) -> Vec<[u16; 3]> {
@@ -283,18 +272,9 @@ impl Filter {
 			return None;
 		}
 
-		macro_rules! get_split {
-			($idx:expr) => {
-				match splits[$idx].parse::<u16>() {
-					Ok(val) => val,
-					_ => return None,
-				}
-			};
-		}
-
-		let first = get_split!(0);
-		let second = get_split!(1);
-		let third = get_split!(2);
+		let first = splits[0].parse::<u16>().ok()?;
+		let second = splits[1].parse::<u16>().ok()?;
+		let third = splits[2].parse::<u16>().ok()?;
 
 		Some([first, second, third])
 	}

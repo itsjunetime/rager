@@ -157,10 +157,11 @@ impl Entry {
 				if components.len() > 1 {
 					let build = components[1..].join(" ");
 
-					self.version = match self.version {
-						Some(ref vers) => Some(format!("{} ({})", vers, build)),
-						None => Some(build),
-					};
+					self.version = self
+						.version
+						.as_ref()
+						.map(|vers| format!("{} ({})", vers, build))
+						.or(Some(build));
 				}
 
 				total_found += 1;
@@ -232,12 +233,10 @@ impl Entry {
 			\tLocation: {:?}\n",
 			self.user_id.as_ref().unwrap_or(&unknown),
 			self.reason.as_ref().unwrap_or(&unknown),
-			match self.os {
-				Some(EntryOS::iOS) => "iOS",
-				Some(EntryOS::Android) => "Android",
-				Some(EntryOS::Desktop) => "Desktop",
-				None => "unknown",
-			},
+			self.os
+				.as_ref()
+				.map(|o| o.to_string())
+				.unwrap_or_else(|| "unknown".to_string()),
 			self.version.as_ref().unwrap_or(&unknown),
 			self.date_time()
 		)
@@ -249,12 +248,10 @@ impl Entry {
 		format!(
 			"{} ({}): {}",
 			self.user_id.as_ref().unwrap_or(&unknown),
-			match self.os {
-				Some(EntryOS::iOS) => "iOS",
-				Some(EntryOS::Android) => "Android",
-				Some(EntryOS::Desktop) => "Desktop",
-				None => "unknown",
-			},
+			self.os
+				.as_ref()
+				.map(|o| o.to_string())
+				.unwrap_or_else(|| "unknown".to_string()),
 			self.reason.as_ref().unwrap_or(&unknown)
 		)
 	}
@@ -267,10 +264,7 @@ impl Entry {
 	}
 
 	pub async fn files_containing_term(&mut self, term: &str) -> Result<Vec<String>, FilterErrors> {
-		let regex = match regex::Regex::new(term) {
-			Ok(rg) => rg,
-			_ => return Err(FilterErrors::BadRegexTerm),
-		};
+		let regex = regex::Regex::new(term).map_err(|_| FilterErrors::BadRegexTerm)?;
 
 		let mut dir = sync_dir();
 		dir.push(self.date_time());

@@ -40,13 +40,11 @@ pub async fn sync_logs(
 
 	let log_dir = sync_dir();
 
-	let mut first_time = !log_dir.exists();
-	if !first_time {
-		first_time = match fs::read_dir(&log_dir) {
+	let first_time = !log_dir.exists()
+		|| match log_dir.read_dir() {
 			Err(_) => true,
 			Ok(entries) => entries.count() == 0,
-		}
-	}
+		};
 
 	// just warn them if it's the first time they're syncing, since it'll probably take a while.
 	if first_time {
@@ -64,19 +62,15 @@ pub async fn sync_logs(
 	let list_url = format!("{}/api/listing/", conf.server);
 
 	// get the list of days to check from the server
-	let days_text = match req_with_auth(&list_url, conf).await {
-		Ok(days) => match days.text().await {
-			Ok(dt) => dt,
-			Err(err) => {
-				err!("Server's list of days contains unparseable text: {}", err);
-				return Err(ListingFailed);
-			}
-		},
-		Err(err) => {
-			err!("Couldn't get list of days to check from server: {}", err);
-			return Err(ListingFailed);
-		}
-	};
+	let days = req_with_auth(&list_url, conf).await.map_err(|err| {
+		err!("Couldn't get list of days to check from server: {}", err);
+		ListingFailed
+	})?;
+
+	let days_text = days.text().await.map_err(|err| {
+		err!("Server's list of days contains unparseable text: {}", err);
+		ListingFailed
+	})?;
 
 	let day_links = get_links(&days_text);
 

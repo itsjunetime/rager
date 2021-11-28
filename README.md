@@ -13,6 +13,8 @@ cd rager
 cargo build --release
 ```
 
+You can also grab a pre-compiled binary from the **Releases** section, but those may not be fully up to date with the changes in this repo.
+
 ## Usage
 Run `rager help` to see all of the options available to you.
 

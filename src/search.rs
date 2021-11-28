@@ -30,13 +30,18 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 		None => return,
 	};
 
-	let descriptions = finds.iter_mut().map(|e| e.selectable_description());
+	let descriptions = finds
+		.iter_mut()
+		.map(|e| e.selectable_description())
+		.collect::<Vec<String>>();
 
-	let mut menu = youchoose::Menu::new(descriptions);
-	let choice = menu.show();
+	let choice = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+		.items(&descriptions)
+		.interact_opt()
+		.expect("Could not get selection from menu");
 
-	if !choice.is_empty() {
-		let mut entry = finds.remove(choice[0]);
+	if let Some(ch) = choice {
+		let mut entry = finds.remove(ch);
 
 		if view {
 			// get the entries that contain the specified term so we can pass it to the view fn

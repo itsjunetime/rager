@@ -66,19 +66,23 @@ pub async fn view(
 	};
 
 	// the list of files, formatted to show a string if they match
-	let string_paths = files.iter().map(|log| {
-		if matches.is_some() && matches.as_ref().unwrap().contains(log) {
-			format!("{} (matches)", log)
-		} else {
-			log.to_owned()
-		}
-	});
+	let string_paths = files
+		.iter()
+		.map(|log| {
+			if matches.is_some() && matches.as_ref().unwrap().contains(log) {
+				format!("{} (matches)", log)
+			} else {
+				log.to_owned()
+			}
+		})
+		.collect::<Vec<String>>();
 
 	let to_show = file.or_else(|| {
-		let mut menu = youchoose::Menu::new(string_paths);
-		let choice = menu.show();
-
-		choice.get(0).map(|idx| files[*idx].to_owned())
+		dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
+			.items(&string_paths)
+			.interact_opt()
+			.ok()
+			.and_then(|s| s.map(|idx| files[idx].to_owned()))
 	});
 
 	if let Some(log) = to_show {

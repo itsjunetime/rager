@@ -151,6 +151,7 @@ pub async fn view(
 		})?;
 
 		pager.set_text(file_contents);
+		pager.set_line_numbers(minus::LineNumbers::Disabled);
 
 		// set a nice prompt with all the details that we want them to see
 		let prompt_str = format!(

@@ -148,13 +148,8 @@ async fn main() {
 
 	if let Some(args) = matches.subcommand_matches("sync") {
 		// get the filter and the config file
-		let (filter, mut config) = match filter_and_config(args, true) {
-			Some((f, c)) => (f, c),
-			None => {
-				err!("Can't read configuration from given file");
-				std::process::exit(1);
-			}
-		};
+		let (filter, mut config) = filter_and_config(args, true)
+			.expect("Can't read configuration from given file");
 
 		if let Some(threads) = args.value_of("threads") {
 			match threads.parse() {
@@ -186,31 +181,30 @@ async fn main() {
 
 		let mut result = sync::sync_logs(&filter_arc, &conf_arc, &state).await;
 
-		while retried < lim || lim == 0 {
-			match result {
-				Err(err) => {
-					retried += 1;
+		while let Err(err) = result {
+			if lim != 0 && retried >= lim {
+				break;
+			}
 
-					match err {
-						errors::SyncErrors::ListingFailed => {
-							if let Ok(mut state) = state.lock() {
-								state.reset("Checking directories".to_owned());
-							}
+			retried += 1;
 
-							println!("\nRager was unable to get a full list of directories; trying again...");
-							result = sync::sync_logs(&filter_arc, &conf_arc, &state).await;
-						}
-						errors::SyncErrors::FilesDownloadFailed(files) => {
-							if let Ok(mut state) = state.lock() {
-								state.reset("Downloaded:".to_owned());
-							}
-
-							println!("\nSome files failed to download. Retrying them...");
-							result = sync::download_files(files, &state, &conf_arc).await;
-						}
+			match err {
+				errors::SyncErrors::ListingFailed => {
+					if let Ok(mut state) = state.lock() {
+						state.reset("Checking directories".to_owned());
 					}
+
+					println!("\nRager was unable to get a full list of directories; trying again...");
+					result = sync::sync_logs(&filter_arc, &conf_arc, &state).await;
 				}
-				_ => break,
+				errors::SyncErrors::FilesDownloadFailed(files) => {
+					if let Ok(mut state) = state.lock() {
+						state.reset("Downloaded:".to_owned());
+					}
+
+					println!("\nSome files failed to download. Retrying them...");
+					result = sync::download_files(files, &state, &conf_arc).await;
+				}
 			}
 		}
 	} else if matches.subcommand_matches("desync").is_some() {
@@ -218,13 +212,8 @@ async fn main() {
 	} else if let Some(args) = matches.subcommand_matches("search") {
 		let view = !args.is_present("preview");
 
-		let (filter, config) = match filter_and_config(args, false) {
-			Some((f, c)) => (f, c),
-			None => {
-				err!("Can't read configuration from given file");
-				std::process::exit(1);
-			}
-		};
+		let (filter, config) = filter_and_config(args, false)
+			.expect("Can't read configuration from given file");
 
 		search::search(filter, config, view).await;
 	} else if let Some(args) = matches.subcommand_matches("view") {
@@ -260,13 +249,10 @@ async fn main() {
 		let file = splits.next().map(ToOwned::to_owned);
 
 		let config_file = args.value_of("config").map(|c| c.to_owned());
-		let config = match config::Config::from_file(&config_file) {
-			Some(conf) => Arc::new(conf),
-			None => {
-				err!("Could not read or parse config file");
-				std::process::exit(1);
-			}
-		};
+
+		let config = config::Config::from_file(&config_file)
+			.map(Arc::new)
+			.expect("Could not read or parse config file");
 
 		let entry = entry::Entry::new(day, time, config);
 
@@ -281,13 +267,8 @@ async fn main() {
 		}
 	} else if let Some(args) = matches.subcommand_matches("prune") {
 		// get the filter and the config file
-		let (filter, config) = match filter_and_config(args, false) {
-			Some((f, c)) => (f, c),
-			None => {
-				err!("Can't read configuration from given file");
-				std::process::exit(1);
-			}
-		};
+		let (filter, config) = filter_and_config(args, false)
+			.expect("Can't read configuration from given file");
 
 		prune::remove_with_terms(filter, config).await;
 	} else if let Some(args) = matches.subcommand_matches("complete") {
@@ -322,13 +303,11 @@ pub fn filter_and_config(
 		.value_of("after")
 		.and_then(filter::Filter::string_to_single_date);
 
-	let oses = terms.value_of("os").map(|o| match o.try_into() {
-		Ok(entry) => vec![entry],
-		Err(err) => {
-			err!("{}", err);
-			std::process::exit(1);
-		}
-	});
+	let oses = terms.value_of("os")
+		.map(|o| o.try_into()
+			.map(|os| vec![os])
+			.expect("OS specified in config file is not valid")
+		);
 
 	let ret_filter = if syncing {
 		let mut ret_filter = filter::Filter::from_config_file(&config_file);

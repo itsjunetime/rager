@@ -40,11 +40,7 @@ pub async fn sync_logs(
 
 	let log_dir = sync_dir();
 
-	let first_time = !log_dir.exists()
-		|| match log_dir.read_dir() {
-			Err(_) => true,
-			Ok(entries) => entries.count() == 0,
-		};
+	let first_time = !log_dir.exists() || log_dir.read_dir().map_or(true, |e| e.count() == 0);
 
 	// just warn them if it's the first time they're syncing, since it'll probably take a while.
 	if first_time {

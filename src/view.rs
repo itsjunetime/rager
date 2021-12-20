@@ -2,6 +2,7 @@ use crate::{entry::Entry, err, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
+use requestty::{question::*, PromptModule, prompt::Answer, ListItem};
 
 const NULL_COLOR: &str = "\x1b[31;1m";
 const NS_COLOR: &str = "\x1b[32;1m";
@@ -77,12 +78,25 @@ pub async fn view(
 		})
 		.collect::<Vec<String>>();
 
+	let question = Question::select("")
+		.message("Files:")
+		.choices(string_paths)
+		.default(0)
+		.build();
+
 	let to_show = file.or_else(|| {
-		dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-			.items(&string_paths)
-			.interact_opt()
-			.ok()
-			.and_then(|s| s.map(|idx| files[idx].to_owned()))
+		if let Some(Answer::ListItem(
+				ListItem { index: _, text: string }
+		)) = PromptModule::new(vec![question])
+			.prompt_all()
+			.expect("Unable to prompt files")
+			.values()
+			.into_iter()
+			.next() {
+			Some(string.to_owned())
+		} else {
+			None
+		}
 	});
 
 	if let Some(log) = to_show {

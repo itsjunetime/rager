@@ -3,6 +3,7 @@ use std::{
 	fs,
 	sync::{Arc, Mutex},
 };
+use requestty::{question::*, PromptModule, prompt::Answer, ListItem};
 
 pub async fn search(filter: Filter, config: Config, view: bool) {
 	let conf_arc = Arc::new(config);
@@ -35,10 +36,24 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 		.map(|e| e.selectable_description())
 		.collect::<Vec<String>>();
 
-	let choice = dialoguer::Select::with_theme(&dialoguer::theme::ColorfulTheme::default())
-		.items(&descriptions)
-		.interact_opt()
-		.expect("Could not get selection from menu");
+	let question = Question::select("")
+		.message("Matching Entries:")
+		.choices(descriptions)
+		.default(0)
+		.build();
+
+	let choice = if let Some(Answer::ListItem(
+		ListItem { index: idx, text: _ }
+	)) = PromptModule::new(vec![question])
+		.prompt_all()
+		.expect("Could not get selection from menu")
+		.values()
+		.into_iter()
+		.next() {
+		Some(*idx)
+	} else {
+		None
+	};
 
 	if let Some(ch) = choice {
 		let mut entry = finds.remove(ch);

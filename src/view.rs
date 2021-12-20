@@ -86,14 +86,14 @@ pub async fn view(
 
 	let to_show = file.or_else(|| {
 		if let Some(Answer::ListItem(
-				ListItem { index: _, text: string }
+				ListItem { index: idx, text: _ }
 		)) = PromptModule::new(vec![question])
 			.prompt_all()
 			.expect("Unable to prompt files")
 			.values()
 			.into_iter()
 			.next() {
-			Some(string.to_owned())
+			Some(files[*idx].to_owned())
 		} else {
 			None
 		}

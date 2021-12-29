@@ -46,11 +46,9 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 		ListItem { index: idx, text: _ }
 	)) = PromptModule::new(vec![question])
 		.prompt_all()
-		.expect("Could not get selection from menu")
-		.values()
-		.into_iter()
-		.next() {
-		Some(*idx)
+		.ok()
+		.map(|p| p[""].clone()) {
+		Some(idx)
 	} else {
 		None
 	};
@@ -90,14 +88,21 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 	// go through the top level directory and get all the days
 	if let Ok(contents) = fs::read_dir(&sync_dir) {
 		let day_joins = contents
-			.filter_map(|day| day.ok().map(|d| d.path()))
-			.map(|day| {
+			.filter_map(|day_dir| {
+				let day = day_dir.ok().map(|d| d.path())?;
+
+				if let Some(day_str) = day.file_name().and_then(|d| d.to_str()) {
+					if !filter.day_ok(day_str) {
+						return None;
+					}
+				}
+
 				// for each of the days ...
 				let day_filter = filter.clone();
 				let day_conf = config.clone();
 				let day_match = matches.clone();
 
-				tokio::spawn(async move {
+				Some(tokio::spawn(async move {
 					// iterate over the times
 					if let Ok(times) = fs::read_dir(&day) {
 						let time_joins = times
@@ -141,7 +146,7 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 
 						futures::future::join_all(time_joins).await;
 					}
-				})
+				}))
 			});
 
 		futures::future::join_all(day_joins).await;

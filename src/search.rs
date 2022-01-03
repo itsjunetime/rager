@@ -85,9 +85,9 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 
 	let matches: Arc<Mutex<Vec<Entry>>> = Arc::new(Mutex::new(Vec::new()));
 
-	// go through the top level directory and get all the days
-	if let Ok(contents) = fs::read_dir(&sync_dir) {
-		let day_joins = contents
+	let day_joins = fs::read_dir(&sync_dir)
+		.ok()
+		.map(|contents| contents
 			.filter_map(|day_dir| {
 				let day = day_dir.ok().map(|d| d.path())?;
 
@@ -106,8 +106,9 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 					// iterate over the times
 					if let Ok(times) = fs::read_dir(&day) {
 						let time_joins = times
-							.filter_map(|time| time.ok().map(|t| t.path()))
 							.filter_map(|time| {
+								let time = time.ok().map(|t| t.path())?;
+
 								let time_filter = day_filter.clone();
 								let time_conf = day_conf.clone();
 								let time_match = day_match.clone();
@@ -147,12 +148,10 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 						futures::future::join_all(time_joins).await;
 					}
 				}))
-			});
+			}
+		))?;
 
-		futures::future::join_all(day_joins).await;
-	} else {
-		return None;
-	};
+	futures::future::join_all(day_joins).await;
 
 	Arc::try_unwrap(matches)
 		.unwrap_or_else(|_| panic!("matches was thrown onto task that was never completed"))

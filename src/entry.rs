@@ -18,8 +18,8 @@ pub struct Entry {
 impl Entry {
 	pub fn new(day: String, time: String, config: Arc<config::Config>) -> Entry {
 		// remove possible trailing directory separators
-		let day = day.replace("/", "").replace("\\", "");
-		let time = time.replace("/", "").replace("\\", "");
+		let day = day.replace('/', "").replace('\\', "");
+		let time = time.replace('/', "").replace('\\', "");
 
 		Entry {
 			day,
@@ -75,7 +75,7 @@ impl Entry {
 			let files = get_links(&res_text)
 				.into_iter()
 				// replace possible trailing slashes just in case
-				.map(|l| l.replace("/", ""))
+				.map(|l| l.replace('/', ""))
 				.collect::<Vec<String>>();
 
 			self.files = Some(files);

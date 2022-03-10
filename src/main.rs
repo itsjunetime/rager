@@ -358,7 +358,7 @@ async fn req_with_auth<U: reqwest::IntoUrl>(
 		.basic_auth(&conf.username, Some(&conf.password))
 		.build()?;
 
-	Ok(client.execute(req).await?)
+	client.execute(req).await
 }
 
 fn sync_dir() -> std::path::PathBuf {

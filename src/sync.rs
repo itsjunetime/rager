@@ -20,7 +20,7 @@ macro_rules! st_log{
 
 macro_rules! st_err{
 	($state:expr, $msg:expr$(, $args:expr)*) => {
-		st_log!($state, "{}", format!("{} {}", crate::ERR_PREFIX, format!($msg$(, $args)*)));
+		st_log!($state, "{} {}", crate::ERR_PREFIX, format!($msg$(, $args)*));
 	}
 }
 
@@ -134,7 +134,7 @@ pub async fn sync_logs(
 
 			let mut times = time_lines
 				.into_iter()
-				.map(|t| (day.replace("/", ""), t.replace("/", "")))
+				.map(|t| (day.replace('/', ""), t.replace('/', "")))
 				.collect::<Vec<(String, String)>>();
 
 			if let Ok(mut helper) = day_helper.lock() {

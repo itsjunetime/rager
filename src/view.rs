@@ -1,4 +1,4 @@
-use crate::{entry::Entry, err, errors::FilterErrors, sync_dir};
+use crate::{entry::Entry, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
@@ -89,11 +89,9 @@ pub async fn view(
 				ListItem { index: idx, text: _ }
 		)) = PromptModule::new(vec![question])
 			.prompt_all()
-			.expect("Unable to prompt files")
-			.values()
-			.into_iter()
-			.next() {
-			Some(files[*idx].to_owned())
+			.ok()
+			.map(|ans| ans[""].to_owned()) {
+			Some(files[idx].to_owned())
 		} else {
 			None
 		}
@@ -156,16 +154,10 @@ pub async fn view(
 		// so that we can get a pretty newline after printing the colorize loading bar
 		println!();
 
-		let mut pager = minus::Pager::new().map_err(|err| {
-			err!(
-				"Failed to create pager ({:?}); are you sure this is running in a tty?",
-				err
-			);
-			FilterErrors::ViewPagingFailed
-		})?;
+		let pager = minus::Pager::new();
 
-		pager.set_text(file_contents);
-		pager.set_line_numbers(minus::LineNumbers::Disabled);
+		pager.set_text(file_contents).map_err(|_| FilterErrors::ViewPagingFailed)?;
+		pager.set_line_numbers(minus::LineNumbers::Disabled).map_err(|_| FilterErrors::ViewPagingFailed)?;
 
 		// set a nice prompt with all the details that we want them to see
 		let prompt_str = format!(
@@ -175,7 +167,7 @@ pub async fn view(
 			entry.user_id.unwrap_or_else(|| "unknown".to_owned()),
 			entry.reason.unwrap_or_else(|| "unknown".to_owned())
 		);
-		pager.set_prompt(prompt_str);
+		pager.set_prompt(prompt_str).map_err(|_| FilterErrors::ViewPagingFailed)?;
 
 		minus::page_all(pager).map_err(|_| FilterErrors::ViewPagingFailed)?;
 	}

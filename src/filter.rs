@@ -265,7 +265,7 @@ impl Filter {
 
 	pub fn date_array(input: &str) -> Option<[u16; 3]> {
 		// remove the trailing slash in case we're passing in a directory
-		let fixed = input.replace("/", "");
+		let fixed = input.replace('/', "");
 		let splits: Vec<&str> = fixed.split('-').collect();
 
 		if splits.len() != 3 {

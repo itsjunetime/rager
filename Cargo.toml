@@ -5,7 +5,8 @@ edition = "2021"
 
 [dependencies]
 reqwest = "0.11.5"
-minus = { version = "4.0.3", features = ["static_output", "search"] }
+minus = { version = "5.0.0-alpha4", features = ["static_output", "search"] }
+# minus = { path = "./minus", features = ["static_output", "search"] }
 tokio = { version = "1.12", features = ["rt-multi-thread", "macros"] }
 clap = "2.33.3"
 regex = "1.5.4"

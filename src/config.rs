@@ -70,8 +70,7 @@ impl Config {
 		// don't error out on this one tho
 		let sync_retry_limit = table
 			.get("sync-retry-limit")
-			.map(|s| s.as_integer())
-			.flatten()
+			.and_then(|s| s.as_integer())
 			.map(|i| i as usize);
 
 		let beeper_hacks = table

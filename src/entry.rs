@@ -4,7 +4,7 @@ use crate::{config, err, errors::FilterErrors, get_links, req_with_auth, sync_di
 use std::{convert::TryFrom, fs, sync::Arc};
 
 pub struct Entry {
-	pub day: String,  // e.g. `20210721`
+	pub day: String,  // e.g. `2021-07-21`
 	pub time: String, // e.g. `022901`
 	pub checked_details: bool,
 	pub files: Option<Vec<String>>,
@@ -243,16 +243,25 @@ impl Entry {
 	}
 
 	pub fn selectable_description(&self) -> String {
-		let unknown = "unknown".to_owned();
+		// Yeah I know these are kinda sketchy, just doing indices,
+		// but it should be fine, due to how these times are always
+		// sent from the api server.
+		let time_display = String::from(&self.time[..2]) + ":" +
+			&self.time[2..4] + ":" +
+			&self.time[4..];
 
 		format!(
-			"{} ({}): {}",
-			self.user_id.as_ref().unwrap_or(&unknown),
+			"{} ({}, on {} at {}): {}",
+			self.user_id.as_ref().map_or_else(|| "unknown", |u| u.as_str()),
 			self.os
 				.as_ref()
-				.map(|o| o.to_string())
-				.unwrap_or_else(|| "unknown".to_string()),
-			self.reason.as_ref().unwrap_or(&unknown)
+				.map_or_else(
+					|| "unknown".to_string(),
+					|o| o.to_string()
+				),
+			self.day,
+			time_display,
+			self.reason.as_ref().map_or_else(|| "unknown", |r| r.as_str())
 		)
 	}
 

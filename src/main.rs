@@ -1,6 +1,6 @@
 #![warn(clippy::all)]
 
-use clap::{App, Arg};
+use clap::{Command, Arg};
 use errors::FilterErrors::*;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
@@ -37,50 +37,50 @@ macro_rules! warn{
 async fn main() {
 	macro_rules! subcommand_search {
 		($name:expr, $about:expr) => {
-			App::new($name)
-							.about($about)
-							.arg(
-								Arg::with_name("user")
-									.short("u")
-									.long("user")
-									.help("Select logs from a specific user")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("when")
-									.short("w")
-									.long("when")
-									.help("Select logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("term")
-									.short("t")
-									.long("term")
-									.help("Select logs containing a specific term (rust-flavored regex supported)")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("os")
-									.short("o")
-									.long("os")
-									.help("Select logs from a specific OS (either 'ios', 'android', or 'desktop')")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("before")
-									.short("b")
-									.long("before")
-									.help("Select logs before a certain date")
-									.takes_value(true),
-							)
-							.arg(
-								Arg::with_name("after")
-									.short("a")
-									.long("after")
-									.help("Select logs from after a certain date")
-									.takes_value(true),
-							)
+			Command::new($name)
+				.about($about)
+				.arg(
+					Arg::new("user")
+						.short('u')
+						.long("user")
+						.help("Select logs from a specific user")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::new("when")
+						.short('w')
+						.long("when")
+						.help("Select logs from a specific day (e.g. 'yesterday', 'friday', '2021-07-09')")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::new("term")
+						.short('t')
+						.long("term")
+						.help("Select logs containing a specific term (rust-flavored regex supported)")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::new("os")
+						.short('o')
+						.long("os")
+						.help("Select logs from a specific OS (either 'ios', 'android', or 'desktop')")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::new("before")
+						.short('b')
+						.long("before")
+						.help("Select logs before a certain date")
+						.takes_value(true),
+				)
+				.arg(
+					Arg::new("after")
+						.short('a')
+						.long("after")
+						.help("Select logs from after a certain date")
+						.takes_value(true),
+				)
 		};
 	}
 
@@ -90,57 +90,57 @@ async fn main() {
 		'/'
 	};
 
-	let matches = App::new("Rager")
-		.version("1.0")
+	let matches = Command::new("Rager")
+		.version("0.4.0")
 		.author("Ian Welker <@janshai:beeper.com>")
 		.subcommand(
 			subcommand_search!("sync", "Download all the logs from the server that you don't currently have on your device")
 				.arg(
-					Arg::with_name("config")
-						.short("c")
+					Arg::new("config")
+						.short('c')
 						.help("The TOML config file to use when syncing. Located at ~/.config/rager.toml (on linux) by default")
 						.takes_value(true),
 				)
 				.arg(
-					Arg::with_name("threads")
-						.short("s")
+					Arg::new("threads")
+						.short('s')
 						.help("How many threads to spawn while downloading. WARNING: this can cause panics when set too high. Recommended value is around 50.")
 						.takes_value(true),
 				),
 		)
-		.subcommand(App::new("desync").about("Clear all logs off of your device"))
+		.subcommand(Command::new("desync").about("Clear all logs off of your device"))
 		.subcommand(
 			subcommand_search!("search", "Search through the logs currently on your device").arg(
-				Arg::with_name("preview")
-					.short("p")
+				Arg::new("preview")
+					.short('p')
 					.long("preview")
 					.help("See only an overview of the selected issue, as opposed to viewing any of the logs")
 					.takes_value(false),
 			),
 		)
 		.subcommand(
-			App::new("view").about("View a specific Entry").arg(
-				Arg::with_name("entry")
+			Command::new("view").about("View a specific Entry").arg(
+				Arg::new("entry")
 					.index(1)
 					.required(true)
-					.help(&format!("The entry (e.g. '2021-07-08{c}161300') or file (e.g. '2021-07-08{c}161300{c}details.log.gz') to view the logs for", c = sep_char))
+					.help(format!("The entry (e.g. '2021-07-08{c}161300') or file (e.g. '2021-07-08{c}161300{c}details.log.gz') to view the logs for", c = sep_char).as_str())
 					.takes_value(true),
 			),
 		)
 		.subcommand(subcommand_search!("prune", "Delete all entries that match the terms"))
 		.subcommand(
-			App::new("complete")
+			Command::new("complete")
 				.about("List completions for view command")
 				.arg(
-					Arg::with_name("input")
+					Arg::new("input")
 						.index(1)
 						.help("The input to get completions for")
 						.takes_value(true)
 				)
 				.arg(
-					Arg::with_name("install")
+					Arg::new("install")
 						.help("Install completion to your $SHELL")
-						.short("i")
+						.short('i')
 						.long("install")
 				)
 		)

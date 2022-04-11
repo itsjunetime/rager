@@ -2,7 +2,7 @@ use crate::{entry::Entry, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
-use requestty::{question::*, PromptModule, prompt::Answer, ListItem};
+use requestty::{question::*, PromptModule, prompt::Answer, ListItem, OnEsc};
 
 const NULL_COLOR: &str = "\x1b[31;1m";
 const NS_COLOR: &str = "\x1b[32;1m";
@@ -81,6 +81,7 @@ pub async fn view(
 	let question = Question::select("")
 		.message("Files:")
 		.choices(string_paths)
+		.on_esc(OnEsc::Terminate)
 		.default(0)
 		.build();
 

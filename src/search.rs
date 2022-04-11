@@ -3,7 +3,7 @@ use std::{
 	fs,
 	sync::{Arc, Mutex},
 };
-use requestty::{question::*, PromptModule, prompt::Answer, ListItem};
+use requestty::{question::*, PromptModule, prompt::Answer, ListItem, OnEsc};
 
 pub async fn search(filter: Filter, config: Config, view: bool) {
 	let conf_arc = Arc::new(config);
@@ -39,6 +39,7 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 	let question = Question::select("")
 		.message("Matching Entries:")
 		.choices(descriptions)
+		.on_esc(OnEsc::Terminate)
 		.default(0)
 		.build();
 

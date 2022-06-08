@@ -41,7 +41,7 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build ${{ github.event.inputs.profile_flag == 'githubrelease' && '--profile githubrelease' }}
+        run: cargo build ${{ github.event.inputs.profile_flag == 'githubrelease' && '--profile githubrelease' || '' }}
 
       - name: Create Release
         uses: actions/upload-artifact@v3

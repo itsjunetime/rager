@@ -16,3 +16,10 @@ chrono = "0.4.19"
 requestty = "0.3.0"
 toml = "0.5.8"
 lazy_static = "1.4.0"
+
+[profile.githubrelease]
+inherits = "release"
+opt-level = 2
+lto = "fat"
+codegen-units = 1
+panic = "abort"

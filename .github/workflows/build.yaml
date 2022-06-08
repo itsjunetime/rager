@@ -44,8 +44,8 @@ jobs:
         run: cargo build ${{ github.event.inputs.profile_flag == 'githubrelease' && '--profile githubrelease' || '' }}
 
       - name: Strip release binary
-        if: matrix.build == "darwin" || matrix.build == "darwin-arm" || matrix.build == "linux"
-        run: strip "target/${{ github.event.inputs.profile_flag || 'debug' }}/rager${{ matrix.extension }}"
+        if: matrix.os == 'macos-latest' || matrix.os == 'ubuntu-latest'
+        run: strip target/${{ github.event.inputs.profile_flag || 'debug' }}/rager${{ matrix.extension }}
 
       - name: Create Release
         uses: actions/upload-artifact@v3

@@ -6,7 +6,7 @@ on:
     inputs:
       profile_flag:
         description: Rust compilation profile flag
-        default: --profile githubrelease
+        default: githubrelease
         required: true
         type: string
 jobs:
@@ -41,10 +41,10 @@ jobs:
           target: ${{ matrix.target }}
 
       - name: Build
-        run: cargo build ${{ github.event.inputs.profile_flag }} 
+        run: cargo build ${{ github.event.inputs.profile_flag == 'githubrelease' && '--profile githubrelease' }}
 
       - name: Create Release
         uses: actions/upload-artifact@v3
         with:
           name: rager_${{ matrix.target }}
-          path: target/${{ matrix.target }}/githubrelease/rager${{ matrix.extension }}
+          path: target/${{ github.event.inputs.profile_flag || 'debug' }}/rager${{ matrix.extension }}

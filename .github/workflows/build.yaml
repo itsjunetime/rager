@@ -1,0 +1,35 @@
+name: "Build"
+on:
+  pull_request:
+  push:
+jobs:
+  build-and-deploy:
+    strategy:
+      matrix:
+        build: [ darwin, darwin-arm, ubuntu, windows ]
+        include:
+          - build: darwin
+            os: macos-latest
+            target: x84_64-apple-darwin
+          - build: darwin-arm
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - build: ubuntu
+            os: ubuntu-latest
+            target: x84_64-unknown-linux-gnu
+          - build: windows
+            os: windows-latest
+            target: x84_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2.4.0
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          target: ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --profile githubrelease

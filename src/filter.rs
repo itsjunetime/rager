@@ -3,6 +3,7 @@ use crate::{
 	entry::{Entry, EntryOS},
 	err,
 	errors::FilterErrors,
+	get_last_synced_day,
 };
 use chrono::Datelike;
 use std::{cmp::Ordering, convert::TryInto, fs};
@@ -16,7 +17,7 @@ pub struct Filter {
 	pub user: Option<String>,
 	pub term: Option<String>,
 	pub any: bool,
-	pub ok_unsure: bool,
+	pub reject_unsure: bool,
 }
 
 impl Filter {
@@ -77,12 +78,32 @@ impl Filter {
 
 		let user = some_or_none_str!("sync-user", o, (Some(o.to_owned())));
 
-		let any = some_or_none_str!("sync-any", o, (Some(o.parse::<bool>().unwrap_or(false))))
-			.unwrap_or(false);
+		macro_rules! sync_bool{
+			($key:expr, $def:expr) => {
+				table.get($key)
+					.and_then(|h| h.as_bool())
+					.unwrap_or($def)
+			}
+		}
 
-		let ok_unsure =
-			some_or_none_str!("sync-unsure", o, (Some(o.parse::<bool>().unwrap_or(false))))
-				.unwrap_or(false);
+		let any = sync_bool!("sync-any", false);
+		let reject_unsure = !sync_bool!("sync-unsure", false);
+		let last_synced = sync_bool!("sync-since-last-day", false);
+
+		if last_synced {
+			if let Some(last_day) = get_last_synced_day() {
+				return Filter {
+					oses,
+					user,
+					any,
+					reject_unsure,
+					before: None,
+					after: Some(last_day),
+					when: None,
+					term: None
+				}
+			}
+		}
 
 		Filter {
 			oses,
@@ -91,7 +112,7 @@ impl Filter {
 			when,
 			user,
 			any,
-			ok_unsure,
+			reject_unsure,
 			term: None,
 		}
 	}
@@ -114,12 +135,12 @@ impl Filter {
 		if self.oses.is_some() {
 			// now get the OS &&  check that as well
 			if entry.get_and_set_os(syncing).await.is_err() {
-				return Ok(self.ok_unsure);
+				return Ok(self.reject_unsure);
 			}
 
 			let os = match &entry.os {
 				Some(os) => os,
-				None => return Ok(self.ok_unsure),
+				None => return Ok(self.reject_unsure),
 			};
 
 			// if (os_ok && self.any) || (!os_ok && !self.any), basically
@@ -131,12 +152,12 @@ impl Filter {
 		// also check the user next
 		if self.user.is_some() {
 			if !entry.checked_details && entry.set_download_values().await.is_err() {
-				return Ok(self.ok_unsure);
+				return Ok(self.reject_unsure);
 			}
 
 			let user = match &entry.user_id {
 				Some(user) => user,
-				None => return Ok(self.ok_unsure),
+				None => return Ok(self.reject_unsure),
 			};
 
 			if self.user_ok(user) == self.any {
@@ -169,7 +190,7 @@ impl Filter {
 
 		let date = match Self::date_array(date) {
 			Some(arr) => arr,
-			_ => return self.ok_unsure,
+			_ => return self.reject_unsure,
 		};
 
 		match self.any {

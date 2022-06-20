@@ -75,12 +75,12 @@ impl Config {
 
 		let beeper_hacks = table
 			.get("beeper-hacks")
-			.map(|v| v.as_bool().unwrap_or(false))
+			.and_then(|v| v.as_bool())
 			.unwrap_or(false);
 
 		let cache_details = table
 			.get("cache-details")
-			.map(|v| v.as_bool().unwrap_or(false))
+			.and_then(|v| v.as_bool())
 			.unwrap_or(false);
 
 		Some(Config {

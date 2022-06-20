@@ -1,6 +1,6 @@
 #![warn(clippy::all)]
 
-use clap::{Command, Arg};
+use clap::{Command, Arg, ArgAction};
 use errors::FilterErrors::*;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
@@ -81,6 +81,20 @@ async fn main() {
 						.help("Select logs from after a certain date")
 						.takes_value(true),
 				)
+				.arg(
+					Arg::new("any")
+						.short('y')
+						.long("any")
+						.help("Match on any true conditions, instead of all")
+						.action(ArgAction::SetTrue)
+				)
+				.arg(
+					Arg::new("reject-unsure")
+						.short('r')
+						.long("reject-unsure")
+						.help("Reject an entry when searching or syncing if we cannot determine whether it fits the search parameters")
+						.action(ArgAction::SetTrue)
+				)
 		};
 	}
 
@@ -106,6 +120,13 @@ async fn main() {
 						.short('s')
 						.help("How many threads to spawn while downloading. WARNING: this can cause panics when set too high. Recommended value is around 50.")
 						.takes_value(true),
+				)
+				.arg(
+					Arg::new("sync-since-last-day")
+						.short('d')
+						.long("sync-since-last-day")
+						.help("Sync entries only since the last day you synced (inclusive)")
+						.action(ArgAction::SetTrue)
 				),
 		)
 		.subcommand(Command::new("desync").about("Clear all logs off of your device"))
@@ -290,8 +311,8 @@ pub fn filter_and_config(
 	let user = terms.value_of("user").map(|u| u.to_owned());
 	let term = terms.value_of("term").map(|t| t.to_owned());
 
-	let any = terms.is_present("any");
-	let ok_unsure = terms.is_present("ok_unsure");
+	let any = *terms.get_one::<bool>("any").unwrap_or(&false);
+	let reject_unsure = *terms.get_one::<bool>("reject-unsure").unwrap_or(&false);
 
 	let when = terms.value_of("when").map(filter::Filter::string_to_dates);
 
@@ -309,6 +330,10 @@ pub fn filter_and_config(
 			.expect("OS specified in config file is not valid")
 		);
 
+	let sync_since_last: bool = *terms
+		.get_one::<bool>("sync-since-last-day")
+		.unwrap_or(&true);
+
 	let ret_filter = if syncing {
 		let mut ret_filter = filter::Filter::from_config_file(&config_file);
 
@@ -322,12 +347,23 @@ pub fn filter_and_config(
 
 		set_new!(user, term, when, before, after, oses,);
 
+		if sync_since_last {
+			if let Some(last) = get_last_synced_day() {
+				// If we get one, then override the before, after, and when
+				// in the filter so that this takes precedence
+				// println!("last is {last}");
+				ret_filter.before = None;
+				ret_filter.when = None;
+				ret_filter.after = Some(last);
+			}
+		}
+
 		if any {
 			ret_filter.any = true;
 		}
 
-		if ok_unsure {
-			ret_filter.ok_unsure = true;
+		if reject_unsure {
+			ret_filter.reject_unsure = false;
 		}
 
 		ret_filter
@@ -340,7 +376,7 @@ pub fn filter_and_config(
 			after,
 			oses,
 			any,
-			ok_unsure,
+			reject_unsure
 		}
 	};
 
@@ -374,4 +410,40 @@ fn get_links(output: &str) -> Vec<&str> {
 		.filter_map(|link| link.split(&['<', '>'][..]).nth(2))
 		.filter(|s| !s.is_empty())
 		.collect::<Vec<&str>>()
+}
+
+// Gets the most recent day that we actually synced during
+fn get_last_synced_day() -> Option<[u16; 3]> {
+	// iterate over all the entries we've downloaded
+	std::fs::read_dir(&sync_dir())
+		.ok()
+		.and_then(|contents| {
+			// Get their paths and filter out the bad ones
+			 let mut sorted = contents.filter_map(|day|
+				day.ok().map(|d| d.path())
+			).collect::<Vec<std::path::PathBuf>>();
+			// Sort them so that the most recent is last
+			sorted.sort();
+			// Then get the second-to-last one, which is what
+			// we'll be telling it to sync after (so it still
+			// tries to sync the most recent day)
+			let second_to_last = sorted.len().saturating_sub(2);
+			let s: Option<[u16; 3]> = sorted.into_iter()
+				.nth(second_to_last)
+				.and_then(|l| {
+					// And get the file name, which will be
+					// the date of the most recent successful sync
+					l.file_name().and_then(|f|
+						f.to_str().and_then(|s|
+							// and parse it into a [u16; 3],
+							// which makes it easier for us to use
+							filter::Filter::string_to_dates(s)
+								.into_iter()
+								.next()
+						)
+					)
+				});
+
+			s
+		})
 }

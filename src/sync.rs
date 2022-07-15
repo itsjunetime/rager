@@ -83,6 +83,22 @@ pub async fn sync_logs(
 		state.add_to_size(day_links.len());
 	}
 
+	macro_rules! outer_finish{
+		($state:ident) => {
+			if let Ok(mut state) = $state.lock() {
+				state.finished_one();
+			}
+			return;
+		};
+		($state:ident, $helper:ident, $msg:expr$(, $args:expr)*) => {{
+			st_err!($state, $msg$(, $args)*);
+			if let Ok(mut helper) = $helper.lock() {
+				helper.failed_listing = true;
+			}
+			outer_finish!($state);
+		}}
+	}
+
 	// for each day...
 	let day_joins = day_links.into_iter().map(|d| {
 		let mut day_log_dir = log_dir.clone();
@@ -96,20 +112,11 @@ pub async fn sync_logs(
 		let day_url = format!("{}{}", list_url, day);
 
 		macro_rules! finish{
-				() => {
-					if let Ok(mut state) = day_state.lock() {
-						state.finished_one();
-					}
-					return;
-				};
-				($msg:expr$(, $args:expr)*) => {{
-					st_err!(day_state, $msg$(, $args)*);
-					if let Ok(mut helper) = day_helper.lock() {
-						helper.failed_listing = true;
-					}
-					finish!();
-				}}
+			() => { outer_finish!(day_state) };
+			($msg:expr$(, $args:expr)*) => {
+				outer_finish!(day_state, day_helper, $msg$(, $args)*)
 			}
+		}
 
 		// spawn a new thread for each entry in each day, since we have to
 		// check all the files in each entry
@@ -184,20 +191,11 @@ pub async fn sync_logs(
 		async move {
 			// a convenience macro to show an error, clean up, and return
 			macro_rules! finish {
-					() => {
-						if let Ok(mut state) = time_state.lock() {
-							state.finished_one();
-						}
-						return;
-					};
-					($msg:expr$(, $args:expr)*) => {{
-						st_err!(time_state, $msg$(, $args)*);
-						if let Ok(mut helper) = time_helper.lock() {
-							helper.failed_listing = !helper.failed_listing;
-						}
-						finish!();
-					}}
-				}
+				() => { outer_finish!(time_state) };
+				($msg:expr$(, $args:expr)*) => {{
+					outer_finish!(time_state, time_helper, $msg$(, $args)*)
+				}}
+			}
 
 			let mut entry = Entry::new(day, time, time_conf.clone());
 
@@ -313,7 +311,7 @@ pub async fn download_files(
 		state.total = files.len();
 	}
 
-	let failed_files: Arc<Mutex<Vec<Download>>> = Arc::new(Mutex::new(Vec::new()));
+	let failed_files: Arc<Mutex<Vec<Download>>> = Default::default();
 
 	// iterate through all the files that we need to download and download them.
 	futures::stream::iter(files.into_iter().map(|down| {
@@ -322,20 +320,20 @@ pub async fn download_files(
 		let fail_clone = failed_files.clone();
 
 		macro_rules! finish{
-				() => {
-					if let Ok(mut stt) = state_clone.lock() {
-						stt.finished_one();
-					}
-					return;
-				};
-				($msg:expr$(, $args:expr)*) => {{
-					st_err!(down.state, $msg$(, $args)*);
-					if let Ok(mut files) = fail_clone.lock() {
-						files.push(down);
-					}
-					finish!();
-				}}
-			}
+			() => {
+				if let Ok(mut stt) = state_clone.lock() {
+					stt.finished_one();
+				}
+				return;
+			};
+			($msg:expr$(, $args:expr)*) => {{
+				st_err!(down.state, $msg$(, $args)*);
+				if let Ok(mut files) = fail_clone.lock() {
+					files.push(down);
+				}
+				finish!();
+			}}
+		}
 
 		// get the url to request and the directory which the file will be written to.
 		let down_url = format!("{}{}", list_url, down.subdir);
@@ -389,7 +387,10 @@ pub async fn download_files(
 			finish!();
 		}
 	}))
-	.buffer_unordered(conf.threads)
+	// this one has to be buffered in order (while the others
+	// can safely be `.buffer_unordered()` since we need to 
+	// download the oldest ones first
+	.buffered(conf.threads)
 	.collect::<Vec<()>>()
 	.await;
 

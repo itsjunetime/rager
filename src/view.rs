@@ -2,17 +2,16 @@ use crate::{entry::Entry, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::fs;
-use requestty::{question::*, PromptModule, prompt::Answer, ListItem, OnEsc};
+use requestty::{question::*, PromptModule, OnEsc};
 
-const NULL_COLOR: &str = "\x1b[31;1m";
-const NS_COLOR: &str = "\x1b[32;1m";
-const HEX_COLOR: &str = "\x1b[33;1m";
-const NUM_COLOR: &str = "\x1b[34;1m";
-const FN_COLOR: &str = "\x1b[35;1m";
-const USER_COLOR: &str = "\x1b[36;1m";
-const ROOM_COLOR: &str = "\x1b[33;3m";
-const URL_COLOR: &str = "\x1b[31;3m";
-const RESET: &str = "\x1b[0m";
+const NUM_REP_STR: &str = "$bfr\x1b[34;1m$num\x1b[0m$aft";
+const NS_REP_STR: &str = "\x1b[32;1m$id\x1b[0m";
+const FN_REP_STR: &str = "\x1b[35;1m$fn\x1b[0m$aft";
+const NULL_REP_STR: &str = "\x1b[31;1m(null)\x1b[0m";
+const HEX_REP_STR: &str = "\x1b[33;1m$hex\x1b[0m";
+const URL_REP_STR: &str = "\x1b[31;3m$url\x1b[0m";
+const ROOM_REP_STR: &str = "\x1b[33;3m$room\x1b[0m";
+const USER_REP_STR: &str = "\x1b[36;1m$user\x1b[0m";
 
 const SECTIONS: usize = 4;
 const LAST_CHARS: [&str; SECTIONS] = [" ", "▎", "▌", "▊"];
@@ -66,36 +65,37 @@ pub async fn view(
 		}
 	};
 
-	// the list of files, formatted to show a string if they match
-	let string_paths = files
-		.iter()
-		.map(|log| {
-			if matches.is_some() && matches.as_ref().unwrap().contains(log) {
-				format!("{} (matches)", log)
-			} else {
-				log.to_owned()
-			}
-		})
-		.collect::<Vec<String>>();
-
-	let question = Question::select("")
-		.message("Files:")
-		.choices(string_paths)
-		.on_esc(OnEsc::Terminate)
-		.default(0)
-		.build();
-
+	// If the user passed in a file, show that one.
+	// Else prompt them to choose a file to show
 	let to_show = file.or_else(|| {
-		if let Some(Answer::ListItem(
-				ListItem { index: idx, text: _ }
-		)) = PromptModule::new(vec![question])
+		// the list of files, formatted to show a string if they match
+		let string_paths = files
+			.iter()
+			.map(|log| {
+				if matches.as_ref().map(|m| m.contains(log)).unwrap_or(false) {
+					format!("{} (matches)", log)
+				} else {
+					log.to_owned()
+				}
+			})
+			.collect::<Vec<String>>();
+
+		// And ask the user what file they'd like to view
+		PromptModule::new(vec![
+			Question::select("")
+				.message("Files:")
+				.choices(string_paths)
+				.on_esc(OnEsc::Terminate)
+				.default(0)
+				.build()
+			])
 			.prompt_all()
 			.ok()
-			.map(|ans| ans[""].to_owned()) {
-			Some(files[idx].to_owned())
-		} else {
-			None
-		}
+			.and_then(|ans|
+				ans[""].as_list_item().map(|l|
+					files[l.index].to_owned()
+				)
+			)
 	});
 
 	if let Some(log) = to_show {
@@ -178,14 +178,14 @@ pub async fn view(
 
 fn colorize_line(line: &str) -> String {
 	// ya know, I wish there was a better/faster way of doing this. But I simply don't know what.
-	let res = NUM_REGEX.replace_all(line, format!("$bfr{}$num{}$aft", NUM_COLOR, RESET));
-	let res = NS_REGEX.replace_all(&res, format!("{}$id{}", NS_COLOR, RESET));
-	let res = FN_REGEX.replace_all(&res, format!(" {}$fn{}$aft", FN_COLOR, RESET));
-	let res = NULL_REGEX.replace_all(&res, format!("{}(null){}", NULL_COLOR, RESET));
-	let res = HEX_REGEX.replace_all(&res, format!("{}$hex{}", HEX_COLOR, RESET));
-	let res = URL_REGEX.replace_all(&res, format!("{}$url{}", URL_COLOR, RESET));
-	let res = ROOM_REGEX.replace_all(&res, format!("{}$room{}", ROOM_COLOR, RESET));
-	let res = USER_REGEX.replace_all(&res, format!("{}$user{}", USER_COLOR, RESET));
+	let res = NUM_REGEX.replace_all(line, NUM_REP_STR);
+	let res = NS_REGEX.replace_all(&res, NS_REP_STR);
+	let res = FN_REGEX.replace_all(&res, FN_REP_STR);
+	let res = NULL_REGEX.replace_all(&res, NULL_REP_STR);
+	let res = HEX_REGEX.replace_all(&res, HEX_REP_STR);
+	let res = URL_REGEX.replace_all(&res, URL_REP_STR);
+	let res = ROOM_REGEX.replace_all(&res, ROOM_REP_STR);
+	let res = USER_REGEX.replace_all(&res, USER_REP_STR);
 
 	res.to_string()
 }

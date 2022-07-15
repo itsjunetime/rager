@@ -3,7 +3,7 @@ use std::{
 	fs,
 	sync::{Arc, Mutex},
 };
-use requestty::{question::*, PromptModule, prompt::Answer, ListItem, OnEsc};
+use requestty::{question::*, PromptModule, OnEsc};
 
 pub async fn search(filter: Filter, config: Config, view: bool) {
 	let conf_arc = Arc::new(config);
@@ -43,16 +43,10 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 		.default(0)
 		.build();
 
-	let choice = if let Some(Answer::ListItem(
-		ListItem { index: idx, text: _ }
-	)) = PromptModule::new(vec![question])
+	let choice = PromptModule::new(vec![question])
 		.prompt_all()
 		.ok()
-		.map(|p| p[""].clone()) {
-		Some(idx)
-	} else {
-		None
-	};
+		.and_then(|p| p[""].as_list_item().map(|l| l.index));
 
 	if let Some(ch) = choice {
 		let mut entry = finds.remove(ch);

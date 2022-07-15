@@ -201,11 +201,7 @@ impl Entry {
 
 			// and then iterate through the files and see if we can detect it that way
 			if let Some(ref links) = self.files {
-				self.os = if links.iter().any(|l| l.starts_with("console")) {
-					Some(EntryOS::iOS)
-				} else {
-					None
-				}
+				self.os = links.iter().any(|l| l.starts_with("console")).then_some(EntryOS::iOS);
 			}
 		}
 

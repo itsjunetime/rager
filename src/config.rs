@@ -1,6 +1,7 @@
 use crate::err;
 use std::fs::read_to_string;
 
+#[derive(Debug)]
 pub struct Config {
 	// the server to connect to
 	pub server: String,

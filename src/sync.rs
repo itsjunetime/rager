@@ -396,9 +396,8 @@ pub async fn download_files(
 
 	// if we did fail to download some files, pull the inner value out of the Arc<Mutex<_>>
 	// and return that with the error
-	let expect_err = "failed_files was passed to a buffer that did not finish";
 	match Arc::try_unwrap(failed_files)
-		.unwrap_or_else(|_| panic!("{}", expect_err))
+		.expect("failed_files was passed to a buffer that did not finish")
 		.into_inner()
 	{
 		Ok(files) if !files.is_empty() => Err(FilesDownloadFailed(files)),
@@ -422,6 +421,7 @@ pub fn desync_all() {
 }
 
 // just some nice structs that I don't want to throw elsewhere
+#[derive(Debug)]
 pub struct Download {
 	pub subdir: String,
 	pub is_cache: bool,
@@ -429,6 +429,7 @@ pub struct Download {
 	pub config: Arc<config::Config>,
 }
 
+#[derive(Debug)]
 pub struct SyncTracker {
 	pub started: usize,
 	pub done: usize,

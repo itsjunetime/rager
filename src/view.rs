@@ -1,7 +1,7 @@
 use crate::{entry::Entry, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::fs;
+use std::{fs, sync::{Arc, Mutex}};
 use requestty::{question::*, PromptModule, OnEsc};
 
 const NUM_REP_STR: &str = "$bfr\x1b[34;1m$num\x1b[0m$aft";
@@ -12,9 +12,6 @@ const HEX_REP_STR: &str = "\x1b[33;1m$hex\x1b[0m";
 const URL_REP_STR: &str = "\x1b[31;3m$url\x1b[0m";
 const ROOM_REP_STR: &str = "\x1b[33;3m$room\x1b[0m";
 const USER_REP_STR: &str = "\x1b[36;1m$user\x1b[0m";
-
-const SECTIONS: usize = 4;
-const LAST_CHARS: [&str; SECTIONS] = [" ", "▎", "▌", "▊"];
 
 lazy_static! {
 	static ref NULL_REGEX: Regex = Regex::new(r"\(null\)").unwrap();
@@ -99,56 +96,57 @@ pub async fn view(
 	});
 
 	if let Some(log) = to_show {
-		use std::io::Write;
-
 		let mut stored_loc = sync_dir();
 		stored_loc.push(entry.date_time());
 		stored_loc.push(&log);
 
 		println!("Loading in log at {:?}...\n", stored_loc);
 
-		let lines =
-			fs::read_to_string(stored_loc).map_err(|_| FilterErrors::FileRetrievalFailed)?;
+		let lines_str = fs::read_to_string(stored_loc)
+				.map_err(|_| FilterErrors::FileRetrievalFailed)?;
 
-		let line_len = lines.lines().count();
-
-		let term_width = 40;
-		let mut orig_perc = 0;
-
-		// ok so we colorize the lines here and also print a nifty little loading bar while doing
-		// so, but don't worry - it doesn't slow down loading at all (in my tests)
-		let file_contents = lines
+		let lines = lines_str
 			.lines()
+			.collect::<Vec<&str>>();
+
+		let line_len = lines.len();
+
+		// I tested a bunch of different values for this (ranging from 1 - 1000000) and
+		// 15 seemed to fare the best for large files (I was testing one with 600mb, like 5M
+		// lines of text iirc). With a smaller file (like 80mb, idk how many lines), a value
+		// of 36-50 seemed to fare better but it was already loading in at like 800ms, so
+		// I don't think we should be optimizing for that. And it's not worth my time to
+		// figure out a solution that changes based on the number of lines since the difference
+		// at this point is so small
+		let chunks = lines.chunks(15);
+
+		let lines_vec = vec![None; line_len];
+		let lines_mx: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(lines_vec));
+
+		let chunk_joins = chunks
 			.enumerate()
-			.map(|(idx, line)| {
-				// calculate percentages to print out a nice little loading thing
-				let perc = (((idx + 1) as f64 / line_len as f64) * (term_width * SECTIONS) as f64)
-					as usize;
+			.map(|(idx, lns)| {
+				let line_clone = lines_mx.clone();
+				let joined = lns.join("\n");
 
-				if perc != orig_perc {
-					orig_perc = perc;
+				tokio::spawn(async move {
+					let colored = colorize_line(&joined);
 
-					// get the character in the middle that won't be completely empty or full
-					let last_char = LAST_CHARS[perc % SECTIONS];
-
-					// print out the progress bar, resetting the cursor and clearing the line
-					print!(
-						"\x1b[2K\rLoading... [{}{}{}]",
-						"█".repeat(perc / SECTIONS),
-						if idx == line_len - 1 {
-							""
-						} else {
-							last_char
-						},
-						" ".repeat(term_width - (perc / SECTIONS))
-					);
-					// flush stdout so that it actually goes to the screen
-					let _ = std::io::stdout().flush();
-				}
-
-				// and colorize the line
-				colorize_line(line)
+					if let Ok(mut lines_lock) = line_clone.lock() {
+						lines_lock[idx] = Some(colored);
+					}
+				})
 			})
+			.collect::<Vec<_>>();
+
+		futures::future::join_all(chunk_joins).await;
+
+		let file_contents = Arc::try_unwrap(lines_mx)
+			.expect("lines_mx was passed to a buffer that never completed")
+			.into_inner()
+			.expect("Could not get inner value from Mutex lines_mx")
+			.into_iter()
+			.filter_map(|s| s)
 			.collect::<Vec<String>>()
 			.join("\n");
 

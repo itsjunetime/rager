@@ -1,7 +1,7 @@
 use crate::{entry::Entry, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::{fs, sync::{Arc, Mutex}, mem::MaybeUninit};
+use std::{fs, sync::{Arc, Mutex}};
 use requestty::{question::*, PromptModule, OnEsc};
 
 const NUM_REP_STR: &str = "$bfr\x1b[34;1m$num\x1b[0m$aft";
@@ -120,12 +120,8 @@ pub async fn view(
 		// at this point is so small
 		let chunks = lines.chunks(15);
 
-		let mut lines_vec = Vec::with_capacity(line_len);
-		for _ in 0..line_len {
-			lines_vec.push(MaybeUninit::uninit());
-		}
-
-		let lines_mx: Arc<Mutex<Vec<MaybeUninit<String>>>> = Arc::new(Mutex::new(lines_vec));
+		let lines_vec = vec![None; line_len];
+		let lines_mx: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(lines_vec));
 
 		let chunk_joins = chunks
 			.enumerate()
@@ -137,7 +133,7 @@ pub async fn view(
 					let colored = colorize_line(&joined);
 
 					if let Ok(mut lines_lock) = line_clone.lock() {
-						lines_lock[idx].write(colored);
+						lines_lock[idx] = Some(colored);
 					}
 				})
 			})
@@ -150,7 +146,7 @@ pub async fn view(
 			.into_inner()
 			.expect("Could not get inner value from Mutex lines_mx")
 			.into_iter()
-			.map(|s| unsafe { s.assume_init() })
+			.filter_map(|s| s)
 			.collect::<Vec<String>>()
 			.join("\n");
 

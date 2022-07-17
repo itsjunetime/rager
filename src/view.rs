@@ -110,7 +110,15 @@ pub async fn view(
 			.collect::<Vec<&str>>();
 
 		let line_len = lines.len();
-		let chunks = lines.chunks(10000);
+
+		// I tested a bunch of different values for this (ranging from 1 - 1000000) and
+		// 15 seemed to fare the best for large files (I was testing one with 600mb, like 5M
+		// lines of text iirc). With a smaller file (like 80mb, idk how many lines), a value
+		// of 36-50 seemed to fare better but it was already loading in at like 800ms, so
+		// I don't think we should be optimizing for that. And it's not worth my time to
+		// figure out a solution that changes based on the number of lines since the difference
+		// at this point is so small
+		let chunks = lines.chunks(15);
 
 		let mut lines_vec = Vec::with_capacity(line_len);
 		for _ in 0..line_len {
@@ -126,17 +134,11 @@ pub async fn view(
 				let joined = lns.join("\n");
 
 				tokio::spawn(async move {
-					println!("started chunk {idx}");
-
 					let colored = colorize_line(&joined);
-
-					println!("finished colorizing");
 
 					if let Ok(mut lines_lock) = line_clone.lock() {
 						lines_lock[idx].write(colored);
 					}
-
-					println!("finished chunk {idx}");
 				})
 			})
 			.collect::<Vec<_>>();
@@ -151,8 +153,6 @@ pub async fn view(
 			.map(|s| unsafe { s.assume_init() })
 			.collect::<Vec<String>>()
 			.join("\n");
-
-		println!("got contents");
 
 		// so that we can get a pretty newline after printing the colorize loading bar
 		println!();
@@ -171,10 +171,6 @@ pub async fn view(
 			entry.reason.unwrap_or_else(|| "unknown".to_owned())
 		);
 		pager.set_prompt(prompt_str).map_err(|_| FilterErrors::ViewPagingFailed)?;
-
-		println!("should be paging all");
-
-		std::process::exit(0);
 
 		minus::page_all(pager).map_err(|_| FilterErrors::ViewPagingFailed)?;
 	}

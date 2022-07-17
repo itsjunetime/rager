@@ -3,7 +3,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use std::{fs, sync::{Arc, Mutex}, mem::MaybeUninit};
 use requestty::{question::*, PromptModule, OnEsc};
-use futures::StreamExt;
 
 const NUM_REP_STR: &str = "$bfr\x1b[34;1m$num\x1b[0m$aft";
 const NS_REP_STR: &str = "\x1b[32;1m$id\x1b[0m";
@@ -13,9 +12,6 @@ const HEX_REP_STR: &str = "\x1b[33;1m$hex\x1b[0m";
 const URL_REP_STR: &str = "\x1b[31;3m$url\x1b[0m";
 const ROOM_REP_STR: &str = "\x1b[33;3m$room\x1b[0m";
 const USER_REP_STR: &str = "\x1b[36;1m$user\x1b[0m";
-
-const SECTIONS: usize = 4;
-const LAST_CHARS: [&str; SECTIONS] = [" ", "▎", "▌", "▊"];
 
 lazy_static! {
 	static ref NULL_REGEX: Regex = Regex::new(r"\(null\)").unwrap();
@@ -100,84 +96,52 @@ pub async fn view(
 	});
 
 	if let Some(log) = to_show {
-		use std::io::Write;
-
 		let mut stored_loc = sync_dir();
 		stored_loc.push(entry.date_time());
 		stored_loc.push(&log);
 
 		println!("Loading in log at {:?}...\n", stored_loc);
 
-		let lines =
-			fs::read_to_string(stored_loc).map_err(|_| FilterErrors::FileRetrievalFailed)?;
+		let lines_str = fs::read_to_string(stored_loc)
+				.map_err(|_| FilterErrors::FileRetrievalFailed)?;
 
-		let line_len = lines.lines().count();
+		let lines = lines_str
+			.lines()
+			.collect::<Vec<&str>>();
 
-		let term_width = 40;
-		let mut orig_perc = 0;
+		let line_len = lines.len();
+		let chunks = lines.chunks(10000);
 
 		let mut lines_vec = Vec::with_capacity(line_len);
-		for i in 0..line_len {
+		for _ in 0..line_len {
 			lines_vec.push(MaybeUninit::uninit());
 		}
 
 		let lines_mx: Arc<Mutex<Vec<MaybeUninit<String>>>> = Arc::new(Mutex::new(lines_vec));
 
-		//let lines_mx: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::with_capacity(line_len)));
-
-		// ok so we colorize the lines here and also print a nifty little loading bar while doing
-		// so, but don't worry - it doesn't slow down loading at all (in my tests)
-		/*let file_contents = lines
-			.lines()
+		let chunk_joins = chunks
 			.enumerate()
-			.map(|(idx, line)| {
-				// calculate percentages to print out a nice little loading thing
-				let perc = (((idx + 1) as f64 / line_len as f64) * (term_width * SECTIONS) as f64)
-					as usize;
+			.map(|(idx, lns)| {
+				let line_clone = lines_mx.clone();
+				let joined = lns.join("\n");
 
-				if perc != orig_perc {
-					orig_perc = perc;
+				tokio::spawn(async move {
+					println!("started chunk {idx}");
 
-					// get the character in the middle that won't be completely empty or full
-					let last_char = LAST_CHARS[perc % SECTIONS];
+					let colored = colorize_line(&joined);
 
-					// print out the progress bar, resetting the cursor and clearing the line
-					print!(
-						"\x1b[2K\rLoading... [{}{}{}]",
-						"█".repeat(perc / SECTIONS),
-						if idx == line_len - 1 {
-							""
-						} else {
-							last_char
-						},
-						" ".repeat(term_width - (perc / SECTIONS))
-					);
-					// flush stdout so that it actually goes to the screen
-					let _ = std::io::stdout().flush();
-				}
+					println!("finished colorizing");
 
-				// and colorize the line
-				colorize_line(line)
-			})
-			.collect::<Vec<String>>()
-			.join("\n");*/
-		futures::stream::iter(
-			lines.lines()
-				.enumerate()
-				.map(|(idx, line)| {
-					let line_clone = lines_mx.clone();
-
-					async move {
-						let colored = colorize_line(line);
-						if let Ok(mut lines) = line_clone.lock() {
-							lines[idx].write(colored);
-						}
+					if let Ok(mut lines_lock) = line_clone.lock() {
+						lines_lock[idx].write(colored);
 					}
+
+					println!("finished chunk {idx}");
 				})
-		)
-		.buffer_unordered(line_len)
-		.collect::<Vec<()>>()
-		.await;
+			})
+			.collect::<Vec<_>>();
+
+		futures::future::join_all(chunk_joins).await;
 
 		let file_contents = Arc::try_unwrap(lines_mx)
 			.expect("lines_mx was passed to a buffer that never completed")
@@ -186,7 +150,9 @@ pub async fn view(
 			.into_iter()
 			.map(|s| unsafe { s.assume_init() })
 			.collect::<Vec<String>>()
-			.join("");
+			.join("\n");
+
+		println!("got contents");
 
 		// so that we can get a pretty newline after printing the colorize loading bar
 		println!();
@@ -205,6 +171,10 @@ pub async fn view(
 			entry.reason.unwrap_or_else(|| "unknown".to_owned())
 		);
 		pager.set_prompt(prompt_str).map_err(|_| FilterErrors::ViewPagingFailed)?;
+
+		println!("should be paging all");
+
+		std::process::exit(0);
 
 		minus::page_all(pager).map_err(|_| FilterErrors::ViewPagingFailed)?;
 	}

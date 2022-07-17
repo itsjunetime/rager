@@ -6,7 +6,7 @@ use requestty::{question::*, PromptModule, OnEsc};
 
 const NUM_REP_STR: &str = "$bfr\x1b[34;1m$num\x1b[0m$aft";
 const NS_REP_STR: &str = "\x1b[32;1m$id\x1b[0m";
-const FN_REP_STR: &str = "\x1b[35;1m$fn\x1b[0m$aft";
+const FN_REP_STR: &str = " \x1b[35;1m$fn\x1b[0m$aft";
 const NULL_REP_STR: &str = "\x1b[31;1m(null)\x1b[0m";
 const HEX_REP_STR: &str = "\x1b[33;1m$hex\x1b[0m";
 const URL_REP_STR: &str = "\x1b[31;3m$url\x1b[0m";

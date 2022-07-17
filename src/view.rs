@@ -1,8 +1,9 @@
 use crate::{entry::Entry, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::fs;
+use std::{fs, sync::{Arc, Mutex}, mem::MaybeUninit};
 use requestty::{question::*, PromptModule, OnEsc};
+use futures::StreamExt;
 
 const NUM_REP_STR: &str = "$bfr\x1b[34;1m$num\x1b[0m$aft";
 const NS_REP_STR: &str = "\x1b[32;1m$id\x1b[0m";
@@ -115,9 +116,18 @@ pub async fn view(
 		let term_width = 40;
 		let mut orig_perc = 0;
 
+		let mut lines_vec = Vec::with_capacity(line_len);
+		for i in 0..line_len {
+			lines_vec.push(MaybeUninit::uninit());
+		}
+
+		let lines_mx: Arc<Mutex<Vec<MaybeUninit<String>>>> = Arc::new(Mutex::new(lines_vec));
+
+		//let lines_mx: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::with_capacity(line_len)));
+
 		// ok so we colorize the lines here and also print a nifty little loading bar while doing
 		// so, but don't worry - it doesn't slow down loading at all (in my tests)
-		let file_contents = lines
+		/*let file_contents = lines
 			.lines()
 			.enumerate()
 			.map(|(idx, line)| {
@@ -150,7 +160,33 @@ pub async fn view(
 				colorize_line(line)
 			})
 			.collect::<Vec<String>>()
-			.join("\n");
+			.join("\n");*/
+		futures::stream::iter(
+			lines.lines()
+				.enumerate()
+				.map(|(idx, line)| {
+					let line_clone = lines_mx.clone();
+
+					async move {
+						let colored = colorize_line(line);
+						if let Ok(mut lines) = line_clone.lock() {
+							lines[idx].write(colored);
+						}
+					}
+				})
+		)
+		.buffer_unordered(line_len)
+		.collect::<Vec<()>>()
+		.await;
+
+		let file_contents = Arc::try_unwrap(lines_mx)
+			.expect("lines_mx was passed to a buffer that never completed")
+			.into_inner()
+			.expect("Could not get inner value from Mutex lines_mx")
+			.into_iter()
+			.map(|s| unsafe { s.assume_init() })
+			.collect::<Vec<String>>()
+			.join("");
 
 		// so that we can get a pretty newline after printing the colorize loading bar
 		println!();

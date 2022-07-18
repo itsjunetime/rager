@@ -1,7 +1,7 @@
 use crate::{entry::Entry, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::{fs, sync::{Arc, Mutex, RwLock}};
+use std::{fs, sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}}};
 use requestty::{question::*, PromptModule, OnEsc};
 
 const NUM_REP_STR: &str = "$bfr\x1b[34;1m$num\x1b[0m$aft";
@@ -13,8 +13,11 @@ const URL_REP_STR: &str = "\x1b[31;3m$url\x1b[0m";
 const ROOM_REP_STR: &str = "\x1b[33;3m$room\x1b[0m";
 const USER_REP_STR: &str = "\x1b[36;1m$user\x1b[0m";
 
+const CHUNK_SIZE: usize = 15;
+
 const TERM_WIDTH: usize = 40;
 const SECTIONS: usize = 4;
+const LOADING_SECTIONS: usize = TERM_WIDTH * SECTIONS;
 const LAST_CHARS: [&str; SECTIONS] = [" ", "▎", "▌", "▊"];
 
 lazy_static! {
@@ -122,9 +125,9 @@ pub async fn view(
 		// I don't think we should be optimizing for that. And it's not worth my time to
 		// figure out a solution that changes based on the number of lines since the difference
 		// at this point is so small
-		let chunks = lines.chunks(15);
+		let chunks = lines.chunks(CHUNK_SIZE);
 		let chunk_count = chunks.len();
-		let orig_perc = Arc::new(RwLock::new(0));
+		let done = Arc::new(AtomicUsize::new(0));
 
 		let lines_vec = vec![None; line_len];
 		let lines_mx: Arc<Mutex<Vec<Option<String>>>> = Arc::new(Mutex::new(lines_vec));
@@ -133,65 +136,49 @@ pub async fn view(
 			.enumerate()
 			.map(|(idx, lns)| {
 				let line_clone = lines_mx.clone();
-				let orig_clone = orig_perc.clone();
+				let done_clone = done.clone();
 				let joined = lns.join("\n");
 
 				tokio::spawn(async move {
 					let colored = colorize_line(&joined);
 
-					let done_count = if let Ok(mut lines_lock) = line_clone.lock() {
+					if let Ok(mut lines_lock) = line_clone.lock() {
 						lines_lock[idx] = Some(colored);
-						Some(lines_lock.iter().filter(|o| o.is_some()).count())
-					} else {
-						None
-					};
+					}
 
+					// we spawn another task here 'cause we don't want to block up the completion
+					// of the colorization task with this computation (and the locking that comes
+					// along with it and could slow it down a lot)
 					tokio::spawn(async move {
-						if let Some(done) = done_count {
-							// calculate percentages to print out a nice little loading thing
-							let perc = ((done as f64 / chunk_count as f64) * (TERM_WIDTH * SECTIONS) as f64) as usize;
+						done_clone.fetch_add(1, Ordering::SeqCst);
+						let done_now = done_clone.load(Ordering::SeqCst);
 
-							// println!("trying for lock... {idx}");
-							let should_print = if let Ok(orig) = orig_clone.read() {
-								*orig != perc
-							} else {
-								false
-							};
-
-							// println!("dropped lock {idx}");
-
-							if !should_print {
-								return;
-							}
-
-							// Make sure it hasn't changed since we read it. If it has,
-							// that's fine; just return.
-							match orig_clone.write() {
-								Ok(mut orig) if *orig != perc => *orig = perc,
-								_ => return,
-							}
-
-							// get the character in the middle that won't be completely empty or full
-							let last_char = LAST_CHARS[perc % SECTIONS];
-
-							print!("{last_char}");
-
-							// print out the progress bar, resetting the cursor and clearing the line
-							/*print!(
-								"\x1b[2K\rLoading... [{}{}{}]",
-								"█".repeat(perc / SECTIONS),
-								if idx == line_len - 1 {
-									""
-								} else {
-									last_char
-								},
-								" ".repeat(TERM_WIDTH - (perc / SECTIONS))
-							);
-
-							// flush stdout so that it actually goes to the screen
-							use std::io::Write;
-							let _ = std::io::stdout().flush();*/
+						if done_now % (chunk_count / LOADING_SECTIONS) != 0 {
+							return;
 						}
+
+						// calculate percentages to print out a nice little loading thing
+						let perc = ((done_now as f64 / chunk_count as f64) * LOADING_SECTIONS as f64) as usize;
+
+						// get the character in the middle that won't be completely empty or full
+						let last_char = LAST_CHARS[perc % SECTIONS];
+						let already = perc / SECTIONS;
+
+						// print out the progress bar, resetting the cursor and clearing the line
+						print!(
+							"\x1b[2K\rLoading... [{}{}{}]",
+							"█".repeat(already),
+							if idx == chunk_count - 1 {
+								""
+							} else {
+								last_char
+							},
+							" ".repeat(TERM_WIDTH - already - 1)
+						);
+
+						// flush stdout so that it actually goes to the screen
+						use std::io::Write;
+						let _ = std::io::stdout().flush();
 					});
 				})
 			})

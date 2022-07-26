@@ -173,7 +173,7 @@ pub async fn view(
 							} else {
 								last_char
 							},
-							" ".repeat(TERM_WIDTH - already - 1)
+							" ".repeat((TERM_WIDTH - already).saturating_sub(1))
 						);
 
 						// flush stdout so that it actually goes to the screen
@@ -191,7 +191,7 @@ pub async fn view(
 			.into_inner()
 			.expect("Could not get inner value from Mutex lines_mx")
 			.into_iter()
-			.filter_map(|s| s)
+			.flatten()
 			.collect::<Vec<String>>()
 			.join("\n");
 

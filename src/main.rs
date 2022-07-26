@@ -22,14 +22,14 @@ const DETAILS: &str = "details.log.gz";
 #[macro_export]
 macro_rules! err{
 	($msg:expr$(, $args:expr)*) => {
-		eprintln!("{} {}", crate::ERR_PREFIX, format!($msg$(, $args)*))
+		eprintln!("{} {}", $crate::ERR_PREFIX, format!($msg$(, $args)*))
 	}
 }
 
 #[macro_export]
 macro_rules! warn{
 	($msg:expr$(, $args:expr)*) => {
-		eprintln!("{} {}", crate::WARN_PREFIX, format!($msg$(, $args)*))
+		eprintln!("{} {}", $crate::WARN_PREFIX, format!($msg$(, $args)*))
 	}
 }
 

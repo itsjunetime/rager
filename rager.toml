@@ -67,3 +67,8 @@ cache-details = false
 # If this key/value is not included, rager never retries a sync. If it is included and set to 0,
 # rager will continue resyncing until all files are downloaded. Otherwise, it only retries as many times as is specified.
 sync-retry-limit = 3
+
+# Your API key (not OAuth key) to connect to the linear.app API, if you decide to use that functionality
+# of rager. If you don't include this key, everything about rager should work just fine besides searching
+# for issues within linear. This key can be obtained from https://linear.app/settings/api
+linear-token = "lin_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" 

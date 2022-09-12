@@ -40,7 +40,9 @@ pub async fn view(
 	matches: Option<Vec<String>>,
 ) -> Result<(), FilterErrors> {
 	if !entry.is_downloaded() {
-		return Err(FilterErrors::ViewingBeforeDownloading);
+		entry.ensure_all_files_downloaded()
+			.await
+			.map_err(|_| FilterErrors::FileRetrievalFailed)?;
 	}
 
 	// Get the list of files if it's not yet loaded into memory
@@ -153,7 +155,10 @@ pub async fn view(
 						done_clone.fetch_add(1, Ordering::SeqCst);
 						let done_now = done_clone.load(Ordering::SeqCst);
 
-						if done_now % (chunk_count / LOADING_SECTIONS) != 0 {
+						// If we have less chunks to iterate through than we have sections to print
+						// in the little loading indicator, we'll be printing something different
+						// every time that we get here, so we should continue.
+						if chunk_count >= LOADING_SECTIONS && done_now % (chunk_count / LOADING_SECTIONS) != 0 {
 							return;
 						}
 

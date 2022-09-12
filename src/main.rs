@@ -14,6 +14,7 @@ mod prune;
 mod search;
 mod sync;
 mod view;
+mod linear;
 
 const ERR_PREFIX: &str = "\x1b[31;1mERROR:\x1b[0m";
 const WARN_PREFIX: &str = "\x1b[33;1mWARNING:\x1b[0m";
@@ -165,6 +166,17 @@ async fn main() {
 						.long("install")
 				)
 		)
+		.subcommand(
+			Command::new("linear")
+				.about("Search for logs associated with a specific issue on linear")
+				.arg(
+					Arg::new("issue")
+						.index(1)
+						.help("The issue to search for, in the form of `TEAM-NUM` (e.g. `IOS-1000`)")
+						.takes_value(true)
+						.required(true)
+				)
+		)
 		.get_matches();
 
 	if let Some(args) = matches.subcommand_matches("sync") {
@@ -298,6 +310,32 @@ async fn main() {
 		} else if let Some(input) = args.value_of("input") {
 			completion::list_completions(input);
 		}
+	} else if let Some(args) = matches.subcommand_matches("linear") {
+		if let Some(issue) = args.value_of("issue") {
+			let issue_splits = issue.split('-').collect::<Vec<&str>>();
+			if issue_splits.len() < 2 {
+				err!("Please input the issue in the format of `TEAM-NUM` (e.g. `IOS-1000`)");
+				return;
+			}
+
+			let team = issue_splits[0];
+			let num = match issue_splits[1].parse() {
+				Ok(num) => num,
+				_ => {
+					err!("Please input the issue in the format of `TEAM-NUM` (e.g. `IOS-1000`)");
+					return;
+				}
+			};
+
+			let config = config::Config::from_file(&None)
+				.expect("Couldn't create config from default file");
+
+			if let Err(err) = linear::find_issue(team, num, config).await {
+				err!("Error finding linear issue: {:?}", err);
+			}
+		}
+	} else {
+		err!("No subcommand selected; please run a subcommand to have something happen");
 	}
 }
 

@@ -1,7 +1,15 @@
 #![allow(non_camel_case_types)]
 
-use crate::{config, err, errors::FilterErrors, get_links, req_with_auth, sync_dir};
-use std::{convert::TryFrom, fs, sync::Arc};
+use crate::{
+	config, 
+	sync::{download_files, Download, SyncTracker},
+	err, 
+	errors::FilterErrors, 
+	get_links, 
+	req_with_auth, 
+	sync_dir
+};
+use std::{convert::TryFrom, fs, sync::{Arc, Mutex}};
 
 pub struct Entry {
 	pub day: String,  // e.g. `2021-07-21`
@@ -265,7 +273,12 @@ impl Entry {
 		let mut dir = sync_dir();
 		dir.push(self.date_time());
 
-		std::path::Path::new(&dir).exists()
+		let path = std::path::Path::new(&dir);
+		let has_files = std::fs::read_dir(&path)
+			.map(|r| r.count() != 0)
+			.unwrap_or(false);
+
+		path.exists() && has_files 
 	}
 
 	pub async fn files_containing_term(&mut self, term: &str) -> Result<Vec<String>, FilterErrors> {
@@ -297,9 +310,52 @@ impl Entry {
 			Ok(Vec::new())
 		}
 	}
+
+	pub async fn ensure_all_files_downloaded(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+		if self.is_downloaded()  {
+			// If files is Some and not empty...
+			return Ok(())
+		}
+
+		println!("🟡 It appears not all files are downloaded for this entry; downloading all files now");
+
+		self.retrieve_file_list(true).await?;
+
+		let state = Arc::new(Mutex::new(SyncTracker {
+			prefix: "Downloading files:".to_owned(),
+			started: 0,
+			done: 0,
+			total: self.files.as_ref().map(|f| f.len()).unwrap_or(0) 
+		}));
+
+		if let Some(downloads) = self.files
+			.as_ref()
+			.map(|files|
+				files.iter().map(|f|
+					Download {
+						subdir: self.date_time() + "/" + f,
+						is_cache: false,
+						state: state.clone(),
+						config: self.config.clone()
+					}
+				).collect::<Vec<Download>>()
+			) {
+
+			let mut parent_dir = sync_dir();
+			parent_dir.push(self.date_time());
+
+			std::fs::create_dir_all(parent_dir)?;
+
+			download_files(downloads, &state, &self.config).await?;
+		}
+
+		self.set_download_values().await?;
+
+		Ok(())
+	}
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum EntryOS {
 	iOS,
 	Android,

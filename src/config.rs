@@ -17,6 +17,8 @@ pub struct Config {
 	pub cache_details: bool,
 	// how many times to retry
 	pub sync_retry_limit: Option<usize>,
+	// the token to interact with the linear api
+	pub linear_token: Option<String>
 }
 
 impl Config {
@@ -63,7 +65,10 @@ impl Config {
 			};
 		}
 
-		let server = get_val!("server", as_str).to_string();
+		let server = get_val!("server", as_str)
+			// Need to make sure it has no trailing slashes
+			.trim_matches('/')
+			.to_string();
 		let password = get_val!("password", as_str).to_string();
 		let username = get_val!("username", as_str).to_string();
 		let threads = get_val!("threads", as_integer) as usize;
@@ -84,6 +89,10 @@ impl Config {
 			.and_then(|v| v.as_bool())
 			.unwrap_or(false);
 
+		let linear_token = table
+			.get("linear-token")
+			.and_then(|t| t.as_str().map(|s| s.to_string()));
+
 		Some(Config {
 			server,
 			password,
@@ -92,6 +101,7 @@ impl Config {
 			beeper_hacks,
 			cache_details,
 			sync_retry_limit,
+			linear_token
 		})
 	}
 

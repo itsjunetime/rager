@@ -19,6 +19,7 @@ mod linear;
 const ERR_PREFIX: &str = "\x1b[31;1mERROR:\x1b[0m";
 const WARN_PREFIX: &str = "\x1b[33;1mWARNING:\x1b[0m";
 const DETAILS: &str = "details.log.gz";
+const VERSION: Option<&str> = option_env!("CARGO_PKG_VERSION");
 
 #[macro_export]
 macro_rules! err{
@@ -106,7 +107,7 @@ async fn main() {
 	};
 
 	let matches = Command::new("Rager")
-		.version("0.4.0")
+		.version(VERSION.unwrap_or("latest"))
 		.author("Ian Welker <@janshai:beeper.com>")
 		.subcommand(
 			subcommand_search!("sync", "Download all the logs from the server that you don't currently have on your device")

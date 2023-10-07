@@ -24,10 +24,10 @@ pub struct Entry {
 }
 
 impl Entry {
-	pub fn new(day: String, time: String, config: Arc<config::Config>) -> Entry {
+	pub fn new(day: &str, time: &str, config: Arc<config::Config>) -> Entry {
 		// remove possible trailing directory separators
-		let day = day.replace('/', "").replace('\\', "");
-		let time = time.replace('/', "").replace('\\', "");
+		let day = day.replace(['/', '\\'], "");
+		let time = time.replace(['/', '\\'], "");
 
 		Entry {
 			day,
@@ -52,29 +52,7 @@ impl Entry {
 
 		// if we're not forcing it to sync, just get the list of files that are
 		// currently downloaded to the device
-		if !force_sync {
-			if let Ok(contents) = fs::read_dir(&sync_dir) {
-				// read through the currently downloaded files
-				let files = contents
-					.filter_map(|file| {
-						// if it's ok...
-						file.ok().and_then(|f|
-							// get the path
-							f.path()
-								// get the file name
-								.file_name()
-								.and_then(|name|
-									// map it to a string instead of osstr
-									name.to_str()
-										// and take ownership so we can store it
-										.map(|s| s.to_string())
-								))
-					})
-					.collect::<Vec<String>>();
-
-				self.files = Some(files);
-			}
-		} else {
+		if force_sync {
 			let url = format!("{}/api/listing/{}", self.config.server, self.date_time());
 
 			let response = req_with_auth(&url, &self.config).await?;
@@ -84,6 +62,25 @@ impl Entry {
 				.into_iter()
 				// replace possible trailing slashes just in case
 				.map(|l| l.replace('/', ""))
+				.collect::<Vec<String>>();
+
+			self.files = Some(files);
+		} else if let Ok(contents) = fs::read_dir(&sync_dir) {
+			// read through the currently downloaded files
+			let files = contents
+				.filter_map(std::result::Result::ok)
+				.filter_map(|file|
+					// get the path
+					file.path()
+						// get the file name
+						.file_name()
+						.and_then(|name|
+							// map it to a string instead of osstr
+							name.to_str()
+								// and take ownership so we can store it
+								.map(std::string::ToString::to_string)
+						)
+				)
 				.collect::<Vec<String>>();
 
 			self.files = Some(files);
@@ -144,18 +141,18 @@ impl Entry {
 
 				total_found += 1;
 			} else if line.starts_with("user_id") {
-				let components: Vec<&str> = line.split(' ').collect();
+				let mut components = line.split(' ');
 
-				if components.len() > 1 {
-					self.user_id = Some(components[1].to_owned());
+				if let Some(user_id) = components.nth(1) {
+					self.user_id = Some(user_id.to_owned());
 				}
 
 				total_found += 1;
 			} else if line.starts_with("Version") || line.starts_with("app_hash") {
-				let components: Vec<&str> = line.split(' ').collect();
+				let mut components = line.split(' ');
 
-				if components.len() > 1 {
-					self.version = Some(components[1].to_owned());
+				if let Some(version) = components.nth(1) {
+					self.version = Some(version.to_owned());
 				}
 
 				total_found += 1;
@@ -168,7 +165,7 @@ impl Entry {
 					self.version = self
 						.version
 						.as_ref()
-						.map(|vers| format!("{} ({})", vers, build))
+						.map(|vers| format!("{vers} ({build})"))
 						.or(Some(build));
 				}
 
@@ -239,8 +236,7 @@ impl Entry {
 			self.reason.as_ref().unwrap_or(&unknown),
 			self.os
 				.as_ref()
-				.map(|o| o.to_string())
-				.unwrap_or_else(|| "unknown".to_string()),
+				.map_or_else(|| "unknown".to_string(), std::string::ToString::to_string),
 			self.version.as_ref().unwrap_or(&unknown),
 			self.date_time()
 		)
@@ -256,16 +252,16 @@ impl Entry {
 
 		format!(
 			"{} ({}, on {} at {}): {}",
-			self.user_id.as_ref().map_or_else(|| "unknown", |u| u.as_str()),
+			self.user_id.as_ref().map_or_else(|| "unknown", std::string::String::as_str),
 			self.os
 				.as_ref()
 				.map_or_else(
 					|| "unknown".to_string(),
-					|o| o.to_string()
+					std::string::ToString::to_string	
 				),
 			self.day,
 			time_display,
-			self.reason.as_ref().map_or_else(|| "unknown", |r| r.as_str())
+			self.reason.as_ref().map_or_else(|| "unknown", std::string::String::as_str)
 		)
 	}
 
@@ -273,12 +269,7 @@ impl Entry {
 		let mut dir = sync_dir();
 		dir.push(self.date_time());
 
-		let path = std::path::Path::new(&dir);
-		let has_files = std::fs::read_dir(&path)
-			.map(|r| r.count() != 0)
-			.unwrap_or(false);
-
-		path.exists() && has_files 
+		std::fs::read_dir(dir).is_ok_and(|r| r.count() != 0)
 	}
 
 	pub async fn files_containing_term(&mut self, term: &str) -> Result<Vec<String>, FilterErrors> {
@@ -301,7 +292,7 @@ impl Entry {
 
 					// if we can read it to string and it matches the regex, push it
 					match fs::read_to_string(&file_dir) {
-						Ok(text) if regex.is_match(&text) => Some(file.to_owned()),
+						Ok(text) if regex.is_match(&text) => Some(file.clone()),
 						_ => None,
 					}
 				})
@@ -325,7 +316,7 @@ impl Entry {
 			prefix: "Downloading files:".to_owned(),
 			started: 0,
 			done: 0,
-			total: self.files.as_ref().map(|f| f.len()).unwrap_or(0) 
+			total: self.files.as_ref().map_or(0, std::vec::Vec::len)
 		}));
 
 		if let Some(downloads) = self.files

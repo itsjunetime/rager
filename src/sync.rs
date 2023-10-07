@@ -109,7 +109,7 @@ pub async fn sync_logs(
 		let day_conf = conf.clone();
 		let day_helper = helper.clone();
 
-		let day_url = format!("{}{}", list_url, day);
+		let day_url = format!("{list_url}{day}");
 
 		macro_rules! finish{
 			() => { outer_finish!(day_state) };
@@ -125,27 +125,24 @@ pub async fn sync_logs(
 				state.add_one_started();
 			}
 
-			let times_text = match req_with_auth(&day_url, &*day_conf).await {
+			let times_text = match req_with_auth(&day_url, &day_conf).await {
 				Ok(tm) => match tm.text().await {
 					Ok(tt) => tt,
-					Err(err) => finish!(
-						"Could not get text for list of times of day {}: {}",
-						day,
-						err
-					),
+					Err(err) => finish!("Could not get text for list of times of day {day}: {err}"),
 				},
-				Err(err) => finish!("Could not get list of times of day {}: {}", day, err),
+				Err(err) => finish!("Could not get list of times of day {day}: {err}"),
 			};
 
 			let time_lines = get_links(&times_text);
+			let num_times = time_lines.len();
 
-			let mut times = time_lines
+			let times = time_lines
 				.into_iter()
-				.map(|t| (day.replace('/', ""), t.replace('/', "")))
-				.collect::<Vec<(String, String)>>();
+				.map(|t| (day.replace('/', ""), t.replace('/', "")));
 
 			if let Ok(mut helper) = day_helper.lock() {
-				helper.times_to_check.append(&mut times);
+				helper.times_to_check.reserve(num_times);
+				helper.times_to_check.extend(times);
 			}
 
 			finish!();
@@ -186,7 +183,7 @@ pub async fn sync_logs(
 		}
 
 		// get the url to check the files in this day
-		let time_url = format!("{}/api/listing/{}/{}", conf.server, day, time);
+		let time_url = format!("{}/api/listing/{day}/{time}", conf.server);
 
 		async move {
 			// a convenience macro to show an error, clean up, and return
@@ -197,12 +194,11 @@ pub async fn sync_logs(
 				}}
 			}
 
-			let mut entry = Entry::new(day, time, time_conf.clone());
+			let mut entry = Entry::new(&day, &time, time_conf.clone());
 
 			// check the entry to make sure we should actually download its files
-			let entry_ok = match time_filter.entry_ok(&mut entry, true).await {
-				Ok(ok) => ok,
-				_ => finish!("Failed to get details for entry at {}", time_url),
+			let Ok(entry_ok) = time_filter.entry_ok(&mut entry, true).await else {
+				finish!("Failed to get details for entry at {}", time_url);
 			};
 
 			if entry_ok || time_conf.cache_details {
@@ -282,9 +278,8 @@ pub async fn sync_logs(
 
 	// The Arc should only have one reference now, so we can try_unwrap it,
 	// then move the value out of the inner mutex and pass it to the download_files
-	let expect_err = "Helper was thrown onto unbuffered task";
 	let downloads = match Arc::try_unwrap(helper)
-		.unwrap_or_else(|_| panic!("{}", expect_err))
+		.expect("Helper was thrown onto unbuffered task")
 		.into_inner()
 	{
 		Ok(helper) if !helper.to_download.is_empty() => helper.to_download,
@@ -311,7 +306,7 @@ pub async fn download_files(
 		state.total = files.len();
 	}
 
-	let failed_files: Arc<Mutex<Vec<Download>>> = Default::default();
+	let failed_files: Arc<Mutex<Vec<Download>>> = Arc::default();
 
 	// iterate through all the files that we need to download and download them.
 	futures::stream::iter(files.into_iter().map(|down| {
@@ -336,7 +331,7 @@ pub async fn download_files(
 		}
 
 		// get the url to request and the directory which the file will be written to.
-		let down_url = format!("{}{}", list_url, down.subdir);
+		let down_url = format!("{list_url}{}", down.subdir);
 		let mut down_dir = log_dir.clone();
 		down_dir.push(&down.subdir);
 
@@ -361,16 +356,16 @@ pub async fn download_files(
 			);
 
 			// actualy download the file
-			let request = match req_with_auth(&down_url, &*down.config).await {
+			let request = match req_with_auth(&down_url, &down.config).await {
 				Ok(req) => req,
-				Err(err) => finish!("Failed to {} file {}: {}", fail_action, down.subdir, err),
+				Err(err) => finish!("Failed to {fail_action} file {}: {err}", down.subdir),
 			};
 
 			// if we can get the text, write it to the file since they're all text files
 			match request.text().await {
 				Ok(text) => match fs::write(&down_dir, text.as_bytes()) {
-					Err(err) => finish!("Couldn't write file to {:?}: {}", down_dir, err),
-					Ok(_) => st_log!(
+					Err(err) => finish!("Couldn't write file to {down_dir:?}: {err}"),
+					Ok(()) => st_log!(
 						down.state,
 						"✅ {} file \x1b[32;1m{}\x1b[0m",
 						finish_action,
@@ -413,8 +408,8 @@ pub fn desync_all() {
 			.filter(|p| p.is_dir())
 		{
 			match std::fs::remove_dir_all(&path) {
-				Ok(_) => println!("Removed logs at {:?}", path),
-				Err(err) => err!("Unable to remove logs at {:?}: {}", path, err),
+				Ok(()) => println!("Removed logs at {path:?}"),
+				Err(err) => err!("Unable to remove logs at {path:?}: {err}"),
 			}
 		}
 	}
@@ -465,8 +460,8 @@ impl SyncTracker {
 			};
 
 			print!(
-				"{}{} \x1b[32;1m{}\x1b[1m/\x1b[32m{}\x1b[0m ({} in progress)",
-				clear, self.prefix, self.done, self.total, self.started
+				"{clear}{} \x1b[32;1m{}\x1b[1m/\x1b[32m{}\x1b[0m ({} in progress)",
+				self.prefix, self.done, self.total, self.started
 			);
 			// have to flush stdout 'cause it's line-buffered and this print! doesn't have a newline
 			let _ = std::io::stdout().flush();
@@ -483,6 +478,7 @@ impl SyncTracker {
 	}
 }
 
+#[derive(Debug)]
 pub struct SyncHelper {
 	pub failed_listing: bool,
 	pub to_download: Vec<Download>,

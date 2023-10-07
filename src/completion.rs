@@ -45,9 +45,9 @@ pub fn list_completions(input: &str) {
 				if let Some(name) = path.file_name().map(|f| f.to_string_lossy()) {
 					// and then print it correctly, adding a directory separator if necessary
 					if input.is_empty() || input.ends_with(sep_char) {
-						println!("{}{}", input, name)
+						println!("{input}{name}");
 					} else {
-						println!("{}{}{}", input, sep_char, name);
+						println!("{input}{sep_char}{name}");
 					}
 				}
 			}
@@ -82,7 +82,7 @@ pub fn list_completions(input: &str) {
 					let name_slice = &name[file_name.len()..];
 
 					// and print it out for completion
-					println!("{}{}", input, name_slice);
+					println!("{input}{name_slice}");
 				}
 			}
 		}
@@ -102,23 +102,21 @@ pub fn install_completion() {
 			if x.is_empty() {
 				println!("The env var $SHELL is empty; aborting");
 			} else {
-				println!("Your shell ({}) is currently not supported :(", x);
+				println!("Your shell ({x}) is currently not supported :(");
 			}
 			return;
 		}
 		Err(err) => {
-			err!("Unable to get value of $SHELL ({}); aborting", err);
+			err!("Unable to get value of $SHELL ({err}); aborting");
 			return;
 		}
 	};
 
 	// show a quick explanation for what will happen if they continue
 	println!(
-		"To install shell completion for rager, we need to append the following lines to your ~/{}:\
-		\n\x1b[1m{}\x1b[0m\
+		"To install shell completion for rager, we need to append the following lines to your ~/{file}:\
+		\n\x1b[1m{install_str}\x1b[0m\
 		\nIs that ok? [y/n]",
-		file,
-		install_str
 	);
 
 	// actually get their input to make sure it's ok
@@ -143,11 +141,11 @@ pub fn install_completion() {
 		// try to write, print status based on if it worked or not
 		match shell_file {
 			Ok(mut f) => match f.write(install_str.as_bytes()) {
-				Err(err) => err!("Unable to write to file at {:?} ({:?}); are you sure you have the right permissions?", path, err),
-				Ok(x) if x > 0 => println!("Successfully installed completion :)\nRun \x1b[1msource ~/{}\x1b[0m to load it in right now.", file),
+				Err(err) => err!("Unable to write to file at {path:?} ({err:?}); are you sure you have the right permissions?"),
+				Ok(x) if x > 0 => println!("Successfully installed completion :)\nRun \x1b[1msource ~/{file}\x1b[0m to load it in right now."),
 				_ => err!("Did not install completion successfully; unknown error occured"),
 			},
-			Err(err) => err!("Unable to open file at {:?}: {}", path, err),
+			Err(err) => err!("Unable to open file at {path:?}: {err}"),
 		}
 	}
 }

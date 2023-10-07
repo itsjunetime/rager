@@ -26,26 +26,20 @@ impl Config {
 		// get the file, default if they passed in none
 		let conf = file
 			.as_ref()
-			.map(|f| f.to_owned())
-			.unwrap_or_else(Self::default_file_url);
+			.map_or_else(Self::default_file_url, std::borrow::ToOwned::to_owned);
 
-		let text = read_to_string(&conf)
-			.ok()
-			.or_else(|| {
-				err!(
-					"Please place a config file at {}; \
-					see github for details on what to include in it.",
-					conf
-				);
-				None
-			})?;
+		let Ok(text) = read_to_string(&conf) else {
+			err!("Please place a config file at {conf}; see github for details on what to include in it.");
+			return None;
+		};
 
-		let val = text.parse::<toml::Value>()
-			.map_err(|err| {
-				err!("Config file at {} is not proper TOML format: {}", conf, err);
-				err
-			})
-			.ok()?;
+		let val = match text.parse::<toml::Value>() {
+			Err(err) => {
+				err!("Config file at {conf} is not proper TOML format: {err}");
+				return None
+			},
+			Ok(v) => v,
+		};
 
 		let table = val.as_table()?;
 
@@ -76,27 +70,27 @@ impl Config {
 		// don't error out on this one tho
 		let sync_retry_limit = table
 			.get("sync-retry-limit")
-			.and_then(|s| s.as_integer())
+			.and_then(toml::Value::as_integer)
 			.map(|i| i as usize);
 
 		let beeper_hacks = table
 			.get("beeper-hacks")
-			.and_then(|v| v.as_bool())
+			.and_then(toml::Value::as_bool)
 			.unwrap_or(false);
 
 		let cache_details = table
 			.get("cache-details")
-			.and_then(|v| v.as_bool())
+			.and_then(toml::Value::as_bool)
 			.unwrap_or(false);
 
 		let linear_token = table
 			.get("linear-token")
-			.and_then(|t| t.as_str().map(|s| s.to_string()));
+			.and_then(|t| t.as_str().map(std::string::ToString::to_string));
 
 		Some(Config {
 			server,
-			password,
 			username,
+			password,
 			threads,
 			beeper_hacks,
 			cache_details,

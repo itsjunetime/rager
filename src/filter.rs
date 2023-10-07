@@ -24,14 +24,13 @@ impl Filter {
 	pub fn from_config_file(file: &Option<String>) -> Filter {
 		let conf = file
 			.as_ref()
-			.map(|f| f.to_owned())
-			.unwrap_or_else(Config::default_file_url);
+			.map_or_else(Config::default_file_url, std::borrow::ToOwned::to_owned);
 
 		// These are all safe to panic! or expect because if the config file was not readable
 		// or invalid toml or whatever, Config::from_file would've caught it and exited the program
 		// before it even reached this
 		let text = fs::read_to_string(&conf)
-			.unwrap_or_else(|_| panic!("Cannot read contents of the config file at {}", conf));
+			.unwrap_or_else(|_| panic!("Cannot read contents of the config file at {conf}"));
 
 		let val = text
 			.parse::<toml::Value>()
@@ -138,9 +137,8 @@ impl Filter {
 				return Ok(self.reject_unsure);
 			}
 
-			let os = match &entry.os {
-				Some(os) => os,
-				None => return Ok(self.reject_unsure),
+			let Some(ref os) = &entry.os else {
+				return Ok(self.reject_unsure);
 			};
 
 			// if (os_ok && self.any) || (!os_ok && !self.any), basically
@@ -155,9 +153,8 @@ impl Filter {
 				return Ok(self.reject_unsure);
 			}
 
-			let user = match &entry.user_id {
-				Some(user) => user,
-				None => return Ok(self.reject_unsure),
+			let Some(ref user) = &entry.user_id else {
+				return Ok(self.reject_unsure);
 			};
 
 			if self.user_ok(user) == self.any {
@@ -179,8 +176,7 @@ impl Filter {
 	pub fn os_ok(&self, os: &EntryOS) -> bool {
 		self.oses
 			.as_ref()
-			.map(|oses| oses.contains(os))
-			.unwrap_or(true)
+			.map_or(true, |oses| oses.contains(os))
 	}
 
 	pub fn day_ok(&self, date: &str) -> bool {
@@ -188,71 +184,66 @@ impl Filter {
 			return true;
 		}
 
-		let date = match Self::date_array(date) {
-			Some(arr) => arr,
-			_ => return self.reject_unsure,
+		let Some(date) = Self::date_array(date) else {
+			return self.reject_unsure;
 		};
 
-		match self.any {
-			true => self.before_ok(&date) || self.after_ok(&date) || self.when_ok(&date),
-			_ => self.before_ok(&date) && self.after_ok(&date) && self.when_ok(&date),
+		if self.any {
+			self.before_ok(date) || self.after_ok(date) || self.when_ok(date)
+		} else {
+			self.before_ok(date) && self.after_ok(date) && self.when_ok(date)
 		}
 	}
 
-	pub fn before_ok(&self, date: &[u16; 3]) -> bool {
+	pub fn before_ok(&self, date: [u16; 3]) -> bool {
 		self.before
-			.map(|before| {
+			.map_or(true, |before| {
 				for (b, s) in before.iter().zip(date) {
-					match b.cmp(s) {
+					match b.cmp(&s) {
 						Ordering::Greater => break,
 						Ordering::Less => return false,
-						_ => (),
+						Ordering::Equal => (),
 					}
 				}
 
-				*date != before
+				date != before
 			})
-			.unwrap_or(true)
 	}
 
-	pub fn after_ok(&self, date: &[u16; 3]) -> bool {
+	pub fn after_ok(&self, date: [u16; 3]) -> bool {
 		self.after
-			.map(|after| {
+			.map_or(true, |after| {
 				for (a, s) in after.iter().zip(date) {
-					match a.cmp(s) {
+					match a.cmp(&s) {
 						Ordering::Greater => return false,
 						Ordering::Less => break,
-						_ => (),
+						Ordering::Equal => (),
 					}
 				}
 
-				*date != after
+				date != after
 			})
-			.unwrap_or(true)
 	}
 
-	pub fn when_ok(&self, date: &[u16; 3]) -> bool {
+	pub fn when_ok(&self, date: [u16; 3]) -> bool {
 		self.when
 			.as_ref()
-			.map(|when| when.contains(date))
-			.unwrap_or(true)
+			.map_or(true, |when| when.contains(&date))
 	}
 
 	pub fn user_ok(&self, user: &str) -> bool {
-		self.user.as_ref().map(|u| user.contains(u)).unwrap_or(true)
+		self.user.as_ref().map_or(true, |u| user.contains(u))
 	}
 
 	pub fn string_to_dates(whens: &str) -> Vec<[u16; 3]> {
 		whens
 			.split(',')
 			.filter_map(Self::string_to_single_date)
-			.collect::<Vec<[u16; 3]>>()
+			.collect()
 	}
 
 	pub fn string_to_single_date(day: &str) -> Option<[u16; 3]> {
-		if let Some(day_arr) = Self::date_array(day) {
-			Some(day_arr)
-		} else {
+		Self::date_array(day).or_else(|| {
 			let now = chrono::offset::Utc::now();
 
 			let days_ago = if day.starts_with("today") {
@@ -263,10 +254,10 @@ impl Filter {
 				let from_now = now.weekday().num_days_from_sunday();
 				let from_then = entry.num_days_from_sunday();
 
-				if from_now != from_then {
-					Some((from_now + 7 - from_then) % 7)
-				} else {
+				if from_now == from_then {
 					Some(7)
+				} else {
+					Some((from_now + 7 - from_then) % 7)
 				}
 			} else {
 				return None;
@@ -281,21 +272,21 @@ impl Filter {
 			}
 
 			None
-		}
+		})
 	}
 
 	pub fn date_array(input: &str) -> Option<[u16; 3]> {
 		// remove the trailing slash in case we're passing in a directory
 		let fixed = input.replace('/', "");
-		let splits: Vec<&str> = fixed.split('-').collect();
+		let mut splits = fixed.split('-');
 
-		if splits.len() != 3 {
+		let (Some(first), Some(second), Some(third)) = (splits.next(), splits.next(), splits.next()) else {
 			return None;
-		}
+		};
 
-		let first = splits[0].parse::<u16>().ok()?;
-		let second = splits[1].parse::<u16>().ok()?;
-		let third = splits[2].parse::<u16>().ok()?;
+		let first = first.parse::<u16>().ok()?;
+		let second = second.parse::<u16>().ok()?;
+		let third = third.parse::<u16>().ok()?;
 
 		Some([first, second, third])
 	}

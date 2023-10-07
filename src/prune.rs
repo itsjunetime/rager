@@ -14,13 +14,13 @@ pub async fn remove_with_terms(filter: Filter, config: Config) {
 		}
 
 		// else go through each and delete their entire directory
-		for e in entries.into_iter() {
+		for e in entries {
 			let mut entry_dir = log_dir.clone();
 			entry_dir.push(e.date_time());
 
 			match std::fs::remove_dir_all(&entry_dir) {
-				Err(err) => err!("Could not remove logs at {:?}: {}", entry_dir, err),
-				_ => println!("Deleted entry at {:?}", entry_dir),
+				Err(err) => err!("Could not remove logs at {entry_dir:?}: {err}"),
+				_ => println!("Deleted entry at {entry_dir:?}"),
 			}
 		}
 	}
@@ -28,13 +28,13 @@ pub async fn remove_with_terms(filter: Filter, config: Config) {
 	// go back over all the days and remove the directory if there are no more entries in there
 	if let Ok(contents) = fs::read_dir(&log_dir) {
 		for dir in contents.filter_map(Result::ok) {
-			if let Ok(mut inner) = fs::read_dir(dir.path()) {
+			let path = dir.path();
+
+			if let Ok(mut inner) = fs::read_dir(&path) {
 				// only delete the directory if it's empty
 				if inner.find_map(Result::ok).is_none() {
-					let path = dir.path();
-
 					if let Err(err) = fs::remove_dir_all(&path) {
-						err!("Failed to remove directory at {:?}: {}", path, err);
+						err!("Failed to remove directory at {path:?}: {err}");
 					}
 				}
 			}

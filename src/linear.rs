@@ -9,12 +9,9 @@ use std::sync::Arc;
 pub async fn find_issue(
 	team: &str, issue: u16, config: Config
 ) -> Result<(), Box<dyn std::error::Error>> {
-	let linear_token = match config.linear_token {
-		Some(ref token) => token,
-		_ => {
-			err!("Looks like you're missing a token to interact with the linear API.\nGet one from \x1b[1mhttps://linear.app/settings/api\x1b[0m and then add it to the config file under the \x1b[1mlinear-token\x1b[0m key");
-			return Ok(());
-		}
+	let Some(ref linear_token) = config.linear_token else {
+		err!("Looks like you're missing a token to interact with the linear API.\nGet one from \x1b[1mhttps://linear.app/settings/api\x1b[0m and then add it to the config file under the \x1b[1mlinear-token\x1b[0m key");
+		return Ok(());
 	};
 
 	let mut query = std::collections::HashMap::new();
@@ -40,8 +37,8 @@ pub async fn find_issue(
 				let url = f.as_str();
 				let len = url.len();
 				// get the day
-				let day = url[len - 17..len - 7].to_owned();
-				let time = url[len - 6..].to_owned();
+				let day = &url[len - 17..len - 7];
+				let time = &url[len - 6..];
 				Entry::new(day, time, Arc::new(config))
 			})
 		) {

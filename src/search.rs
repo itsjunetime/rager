@@ -9,27 +9,24 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 	let conf_arc = Arc::new(config);
 	let filter_arc = Arc::new(filter);
 
-	let mut finds = match entries_with_filter(&filter_arc, &conf_arc).await {
-		Some(mut fs) => {
-			if fs.is_empty() {
-				println!(":( It looks like your search terms didn't turn up any results");
-				return;
-			}
-
-			for entry in fs.iter_mut() {
-				if let Err(err) = entry.set_download_values().await {
-					err!(
-						"Unable to get downloaded values for {}: {:?}",
-						entry.date_time(),
-						err
-					);
-				}
-			}
-
-			fs
-		}
-		None => return,
+	let Some(mut finds) = entries_with_filter(&filter_arc, &conf_arc).await else {
+		return;
 	};
+
+	if finds.is_empty() {
+		println!(":( It looks like your search terms didn't turn up any results");
+		return;
+	}
+
+	for entry in &mut finds {
+		if let Err(err) = entry.set_download_values().await {
+			err!(
+				"Unable to get downloaded values for {}: {:?}",
+				entry.date_time(),
+				err
+			);
+		}
+	}
 
 	let descriptions = finds
 		.iter_mut()
@@ -61,7 +58,7 @@ pub async fn search(filter: Filter, config: Config, view: bool) {
 			if let Err(err) = view::view(entry, None, entries).await {
 				match err {
 					ViewingBeforeDownloading => {
-						err!("Cannot view a file before downloading the entry")
+						err!("Cannot view a file before downloading the entry");
 					}
 					FileRetrievalFailed => err!("Failed to determine list of files in entry"),
 					FileReadingFailed => err!("Failed to read specified file"),
@@ -122,14 +119,10 @@ pub async fn entries_with_filter(filter: &Arc<Filter>, config: &Arc<Config>) -> 
 								let time_str = final_component!(time);
 
 								Some(tokio::spawn(async move {
-									let mut entry = Entry::new(
-										day_str.to_string(),
-										time_str.to_string(),
-										time_conf,
-									);
+									let mut entry = Entry::new(&day_str, &time_str, time_conf);
 
 									match time_filter.entry_ok(&mut entry, false).await {
-										Err(err) => err!("Error when checking entry: {:?}", err),
+										Err(err) => err!("Error when checking entry: {err:?}"),
 										Ok(true) => {
 											if let Ok(mut matches) = time_match.lock() {
 												matches.push(entry);

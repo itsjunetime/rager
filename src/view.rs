@@ -2,7 +2,7 @@ use crate::{entry::Entry, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
 use std::{fs, sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}}};
-use requestty::{question::*, PromptModule, OnEsc};
+use requestty::{question::Question, PromptModule, OnEsc};
 
 const NUM_REP_STR: &str = "$bfr\x1b[34;1m$num\x1b[0m$aft";
 const NS_REP_STR: &str = "\x1b[32;1m$id\x1b[0m";
@@ -78,13 +78,12 @@ pub async fn view(
 		let string_paths = files
 			.iter()
 			.map(|log| {
-				if matches.as_ref().map(|m| m.contains(log)).unwrap_or(false) {
-					format!("{} (matches)", log)
+				if matches.as_ref().is_some_and(|m| m.contains(log)) {
+					format!("{log} (matches)")
 				} else {
-					log.to_owned()
+					log.clone()
 				}
-			})
-			.collect::<Vec<String>>();
+			});
 
 		// And ask the user what file they'd like to view
 		PromptModule::new(vec![
@@ -99,7 +98,7 @@ pub async fn view(
 			.ok()
 			.and_then(|ans|
 				ans[""].as_list_item().map(|l|
-					files[l.index].to_owned()
+					files[l.index].clone()
 				)
 			)
 	});
@@ -109,7 +108,7 @@ pub async fn view(
 		stored_loc.push(entry.date_time());
 		stored_loc.push(&log);
 
-		println!("Loading in log at {:?}...\n", stored_loc);
+		println!("Loading in log at {stored_loc:?}...\n");
 
 		let lines_str = fs::read_to_string(stored_loc)
 				.map_err(|_| FilterErrors::FileRetrievalFailed)?;

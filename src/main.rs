@@ -197,7 +197,7 @@ async fn main() {
 
 		println!("Starting sync with server...");
 
-		let lim = config.sync_retry_limit.map(|l| l as i8).unwrap_or(-1);
+		let lim = config.sync_retry_limit.map_or(-1, |l| l as i8);
 		let conf_arc = Arc::new(config);
 		let filter_arc = Arc::new(filter);
 
@@ -242,7 +242,7 @@ async fn main() {
 			}
 		}
 	} else if matches.subcommand_matches("desync").is_some() {
-		sync::desync_all()
+		sync::desync_all();
 	} else if let Some(args) = matches.subcommand_matches("search") {
 		let view = !args.is_present("preview");
 
@@ -269,20 +269,16 @@ async fn main() {
 		let mut splits = day_time.split('/');
 		let day = splits
 			.next()
-			.expect("Splits somehow doesn't even have a 0th index")
-			.to_owned();
+			.expect("Splits somehow doesn't even have a 0th index");
 
-		let time = match splits.next() {
-			Some(t) => t.to_owned(),
-			_ => {
-				err!("You must enter at least a day and time to view");
-				return;
-			}
+		let Some(time) = splits.next() else {
+			err!("You must enter at least a day and time to view");
+			return;
 		};
 
 		let file = splits.next().map(ToOwned::to_owned);
 
-		let config_file = args.value_of("config").map(|c| c.to_owned());
+		let config_file = args.value_of("config").map(ToOwned::to_owned);
 
 		let config = config::Config::from_file(&config_file)
 			.map(Arc::new)
@@ -313,19 +309,15 @@ async fn main() {
 		}
 	} else if let Some(args) = matches.subcommand_matches("linear") {
 		if let Some(issue) = args.value_of("issue") {
-			let issue_splits = issue.split('-').collect::<Vec<&str>>();
-			if issue_splits.len() < 2 {
+			let mut issue_splits = issue.split('-');
+			let (Some(team), Some(num)) = (issue_splits.next(), issue_splits.next()) else {
 				err!("Please input the issue in the format of `TEAM-NUM` (e.g. `IOS-1000`)");
 				return;
-			}
+			};
 
-			let team = issue_splits[0];
-			let num = match issue_splits[1].parse() {
-				Ok(num) => num,
-				_ => {
-					err!("Please input the issue in the format of `TEAM-NUM` (e.g. `IOS-1000`)");
-					return;
-				}
+			let Ok(num) = num.parse() else {
+				err!("Please input the issue in the format of `TEAM-NUM` (e.g. `IOS-1000`)");
+				return;
 			};
 
 			let config = config::Config::from_file(&None)
@@ -344,11 +336,11 @@ pub fn filter_and_config(
 	terms: &clap::ArgMatches,
 	syncing: bool,
 ) -> Option<(filter::Filter, config::Config)> {
-	let config_file = terms.value_of("config").map(|c| c.to_owned());
+	let config_file = terms.value_of("config").map(ToOwned::to_owned);
 	let config = config::Config::from_file(&config_file)?;
 
-	let user = terms.value_of("user").map(|u| u.to_owned());
-	let term = terms.value_of("term").map(|t| t.to_owned());
+	let user = terms.value_of("user").map(ToOwned::to_owned);
+	let term = terms.value_of("term").map(ToOwned::to_owned);
 
 	let any = *terms.get_one::<bool>("any").unwrap_or(&false);
 	let reject_unsure = *terms.get_one::<bool>("reject-unsure").unwrap_or(&false);
@@ -408,12 +400,12 @@ pub fn filter_and_config(
 		ret_filter
 	} else {
 		filter::Filter {
-			user,
-			term,
-			when,
+			oses,
 			before,
 			after,
-			oses,
+			when,
+			user,
+			term,
 			any,
 			reject_unsure
 		}
@@ -454,7 +446,7 @@ fn get_links(output: &str) -> Vec<&str> {
 // Gets the most recent day that we actually synced during
 fn get_last_synced_day() -> Option<[u16; 3]> {
 	// iterate over all the entries we've downloaded
-	std::fs::read_dir(&sync_dir())
+	std::fs::read_dir(sync_dir())
 		.ok()
 		.and_then(|contents| {
 			// Get their paths and filter out the bad ones

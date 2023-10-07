@@ -77,12 +77,10 @@ impl Filter {
 
 		let user = some_or_none_str!("sync-user", o, (Some(o.to_owned())));
 
-		macro_rules! sync_bool{
+		macro_rules! sync_bool {
 			($key:expr, $def:expr) => {
-				table.get($key)
-					.and_then(|h| h.as_bool())
-					.unwrap_or($def)
-			}
+				table.get($key).and_then(|h| h.as_bool()).unwrap_or($def)
+			};
 		}
 
 		let any = sync_bool!("sync-any", false);
@@ -99,8 +97,8 @@ impl Filter {
 					before: None,
 					after: Some(last_day),
 					when: None,
-					term: None
-				}
+					term: None,
+				};
 			}
 		}
 
@@ -174,9 +172,7 @@ impl Filter {
 	}
 
 	pub fn os_ok(&self, os: &EntryOS) -> bool {
-		self.oses
-			.as_ref()
-			.map_or(true, |oses| oses.contains(os))
+		self.oses.as_ref().map_or(true, |oses| oses.contains(os))
 	}
 
 	pub fn day_ok(&self, date: &str) -> bool {
@@ -196,39 +192,35 @@ impl Filter {
 	}
 
 	pub fn before_ok(&self, date: [u16; 3]) -> bool {
-		self.before
-			.map_or(true, |before| {
-				for (b, s) in before.iter().zip(date) {
-					match b.cmp(&s) {
-						Ordering::Greater => break,
-						Ordering::Less => return false,
-						Ordering::Equal => (),
-					}
+		self.before.map_or(true, |before| {
+			for (b, s) in before.iter().zip(date) {
+				match b.cmp(&s) {
+					Ordering::Greater => break,
+					Ordering::Less => return false,
+					Ordering::Equal => (),
 				}
+			}
 
-				date != before
-			})
+			date != before
+		})
 	}
 
 	pub fn after_ok(&self, date: [u16; 3]) -> bool {
-		self.after
-			.map_or(true, |after| {
-				for (a, s) in after.iter().zip(date) {
-					match a.cmp(&s) {
-						Ordering::Greater => return false,
-						Ordering::Less => break,
-						Ordering::Equal => (),
-					}
+		self.after.map_or(true, |after| {
+			for (a, s) in after.iter().zip(date) {
+				match a.cmp(&s) {
+					Ordering::Greater => return false,
+					Ordering::Less => break,
+					Ordering::Equal => (),
 				}
+			}
 
-				date != after
-			})
+			date != after
+		})
 	}
 
 	pub fn when_ok(&self, date: [u16; 3]) -> bool {
-		self.when
-			.as_ref()
-			.map_or(true, |when| when.contains(&date))
+		self.when.as_ref().map_or(true, |when| when.contains(&date))
 	}
 
 	pub fn user_ok(&self, user: &str) -> bool {
@@ -280,7 +272,9 @@ impl Filter {
 		let fixed = input.replace('/', "");
 		let mut splits = fixed.split('-');
 
-		let (Some(first), Some(second), Some(third)) = (splits.next(), splits.next(), splits.next()) else {
+		let (Some(first), Some(second), Some(third)) =
+			(splits.next(), splits.next(), splits.next())
+		else {
 			return None;
 		};
 

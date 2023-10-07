@@ -1,6 +1,6 @@
 #![warn(clippy::all)]
 
-use clap::{Command, Arg, ArgAction};
+use clap::{Arg, ArgAction, Command};
 use errors::FilterErrors::*;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
@@ -10,11 +10,11 @@ mod config;
 mod entry;
 mod errors;
 mod filter;
+mod linear;
 mod prune;
 mod search;
 mod sync;
 mod view;
-mod linear;
 
 const ERR_PREFIX: &str = "\x1b[31;1mERROR:\x1b[0m";
 const WARN_PREFIX: &str = "\x1b[33;1mWARNING:\x1b[0m";
@@ -182,8 +182,8 @@ async fn main() {
 
 	if let Some(args) = matches.subcommand_matches("sync") {
 		// get the filter and the config file
-		let (filter, mut config) = filter_and_config(args, true)
-			.expect("Can't read configuration from given file");
+		let (filter, mut config) =
+			filter_and_config(args, true).expect("Can't read configuration from given file");
 
 		if let Some(threads) = args.value_of("threads") {
 			match threads.parse() {
@@ -228,7 +228,9 @@ async fn main() {
 						state.reset("Checking directories".to_owned());
 					}
 
-					println!("\nRager was unable to get a full list of directories; trying again...");
+					println!(
+						"\nRager was unable to get a full list of directories; trying again..."
+					);
 					result = sync::sync_logs(&filter_arc, &conf_arc, &state).await;
 				}
 				errors::SyncErrors::FilesDownloadFailed(files) => {
@@ -246,8 +248,8 @@ async fn main() {
 	} else if let Some(args) = matches.subcommand_matches("search") {
 		let view = !args.is_present("preview");
 
-		let (filter, config) = filter_and_config(args, false)
-			.expect("Can't read configuration from given file");
+		let (filter, config) =
+			filter_and_config(args, false).expect("Can't read configuration from given file");
 
 		search::search(filter, config, view).await;
 	} else if let Some(args) = matches.subcommand_matches("view") {
@@ -297,8 +299,8 @@ async fn main() {
 		}
 	} else if let Some(args) = matches.subcommand_matches("prune") {
 		// get the filter and the config file
-		let (filter, config) = filter_and_config(args, false)
-			.expect("Can't read configuration from given file");
+		let (filter, config) =
+			filter_and_config(args, false).expect("Can't read configuration from given file");
 
 		prune::remove_with_terms(filter, config).await;
 	} else if let Some(args) = matches.subcommand_matches("complete") {
@@ -320,8 +322,8 @@ async fn main() {
 				return;
 			};
 
-			let config = config::Config::from_file(&None)
-				.expect("Couldn't create config from default file");
+			let config =
+				config::Config::from_file(&None).expect("Couldn't create config from default file");
 
 			if let Err(err) = linear::find_issue(team, num, config).await {
 				err!("Error finding linear issue: {:?}", err);
@@ -355,11 +357,11 @@ pub fn filter_and_config(
 		.value_of("after")
 		.and_then(filter::Filter::string_to_single_date);
 
-	let oses = terms.value_of("os")
-		.map(|o| o.try_into()
+	let oses = terms.value_of("os").map(|o| {
+		o.try_into()
 			.map(|os| vec![os])
 			.expect("OS specified in config file is not valid")
-		);
+	});
 
 	let sync_since_last: bool = *terms
 		.get_one::<bool>("sync-since-last-day")
@@ -407,7 +409,7 @@ pub fn filter_and_config(
 			user,
 			term,
 			any,
-			reject_unsure
+			reject_unsure,
 		}
 	};
 
@@ -446,35 +448,30 @@ fn get_links(output: &str) -> Vec<&str> {
 // Gets the most recent day that we actually synced during
 fn get_last_synced_day() -> Option<[u16; 3]> {
 	// iterate over all the entries we've downloaded
-	std::fs::read_dir(sync_dir())
-		.ok()
-		.and_then(|contents| {
-			// Get their paths and filter out the bad ones
-			 let mut sorted = contents.filter_map(|day|
-				day.ok().map(|d| d.path())
-			).collect::<Vec<std::path::PathBuf>>();
-			// Sort them so that the most recent is last
-			sorted.sort();
-			// Then get the second-to-last one, which is what
-			// we'll be telling it to sync after (so it still
-			// tries to sync the most recent day)
-			let second_to_last = sorted.len().saturating_sub(2);
-			let s: Option<[u16; 3]> = sorted.into_iter()
-				.nth(second_to_last)
-				.and_then(|l| {
-					// And get the file name, which will be
-					// the date of the most recent successful sync
-					l.file_name().and_then(|f|
-						f.to_str().and_then(|s|
+	std::fs::read_dir(sync_dir()).ok().and_then(|contents| {
+		// Get their paths and filter out the bad ones
+		let mut sorted = contents
+			.filter_map(|day| day.ok().map(|d| d.path()))
+			.collect::<Vec<std::path::PathBuf>>();
+		// Sort them so that the most recent is last
+		sorted.sort();
+		// Then get the second-to-last one, which is what
+		// we'll be telling it to sync after (so it still
+		// tries to sync the most recent day)
+		let second_to_last = sorted.len().saturating_sub(2);
+		let s: Option<[u16; 3]> = sorted.into_iter().nth(second_to_last).and_then(|l| {
+			// And get the file name, which will be
+			// the date of the most recent successful sync
+			l.file_name().and_then(|f| {
+				f.to_str().and_then(|s|
 							// and parse it into a [u16; 3],
 							// which makes it easier for us to use
 							filter::Filter::string_to_dates(s)
 								.into_iter()
-								.next()
-						)
-					)
-				});
+								.next())
+			})
+		});
 
-			s
-		})
+		s
+	})
 }

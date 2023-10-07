@@ -71,4 +71,4 @@ sync-retry-limit = 3
 # Your API key (not OAuth key) to connect to the linear.app API, if you decide to use that functionality
 # of rager. If you don't include this key, everything about rager should work just fine besides searching
 # for issues within linear. This key can be obtained from https://linear.app/settings/api
-linear-token = "lin_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" 
+linear-token = "lin_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"

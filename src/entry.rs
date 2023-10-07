@@ -1,15 +1,17 @@
 #![allow(non_camel_case_types)]
 
 use crate::{
-	config, 
+	config, err,
+	errors::FilterErrors,
+	get_links, req_with_auth,
 	sync::{download_files, Download, SyncTracker},
-	err, 
-	errors::FilterErrors, 
-	get_links, 
-	req_with_auth, 
-	sync_dir
+	sync_dir,
 };
-use std::{convert::TryFrom, fs, sync::{Arc, Mutex}};
+use std::{
+	convert::TryFrom,
+	fs,
+	sync::{Arc, Mutex},
+};
 
 pub struct Entry {
 	pub day: String,  // e.g. `2021-07-21`
@@ -79,8 +81,7 @@ impl Entry {
 							name.to_str()
 								// and take ownership so we can store it
 								.map(std::string::ToString::to_string)
-						)
-				)
+						))
 				.collect::<Vec<String>>();
 
 			self.files = Some(files);
@@ -206,7 +207,10 @@ impl Entry {
 
 			// and then iterate through the files and see if we can detect it that way
 			if let Some(ref links) = self.files {
-				self.os = links.iter().any(|l| l.starts_with("console")).then_some(EntryOS::iOS);
+				self.os = links
+					.iter()
+					.any(|l| l.starts_with("console"))
+					.then_some(EntryOS::iOS);
 			}
 		}
 
@@ -246,22 +250,22 @@ impl Entry {
 		// Yeah I know these are kinda sketchy, just doing indices,
 		// but it should be fine, due to how these times are always
 		// sent from the api server.
-		let time_display = String::from(&self.time[..2]) + ":" +
-			&self.time[2..4] + ":" +
-			&self.time[4..];
+		let time_display =
+			String::from(&self.time[..2]) + ":" + &self.time[2..4] + ":" + &self.time[4..];
 
 		format!(
 			"{} ({}, on {} at {}): {}",
-			self.user_id.as_ref().map_or_else(|| "unknown", std::string::String::as_str),
+			self.user_id
+				.as_ref()
+				.map_or_else(|| "unknown", std::string::String::as_str),
 			self.os
 				.as_ref()
-				.map_or_else(
-					|| "unknown".to_string(),
-					std::string::ToString::to_string	
-				),
+				.map_or_else(|| "unknown".to_string(), std::string::ToString::to_string),
 			self.day,
 			time_display,
-			self.reason.as_ref().map_or_else(|| "unknown", std::string::String::as_str)
+			self.reason
+				.as_ref()
+				.map_or_else(|| "unknown", std::string::String::as_str)
 		)
 	}
 
@@ -303,12 +307,14 @@ impl Entry {
 	}
 
 	pub async fn ensure_all_files_downloaded(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-		if self.is_downloaded()  {
+		if self.is_downloaded() {
 			// If files is Some and not empty...
-			return Ok(())
+			return Ok(());
 		}
 
-		println!("🟡 It appears not all files are downloaded for this entry; downloading all files now");
+		println!(
+			"🟡 It appears not all files are downloaded for this entry; downloading all files now"
+		);
 
 		self.retrieve_file_list(true).await?;
 
@@ -316,22 +322,20 @@ impl Entry {
 			prefix: "Downloading files:".to_owned(),
 			started: 0,
 			done: 0,
-			total: self.files.as_ref().map_or(0, std::vec::Vec::len)
+			total: self.files.as_ref().map_or(0, std::vec::Vec::len),
 		}));
 
-		if let Some(downloads) = self.files
-			.as_ref()
-			.map(|files|
-				files.iter().map(|f|
-					Download {
-						subdir: self.date_time() + "/" + f,
-						is_cache: false,
-						state: state.clone(),
-						config: self.config.clone()
-					}
-				).collect::<Vec<Download>>()
-			) {
-
+		if let Some(downloads) = self.files.as_ref().map(|files| {
+			files
+				.iter()
+				.map(|f| Download {
+					subdir: self.date_time() + "/" + f,
+					is_cache: false,
+					state: state.clone(),
+					config: self.config.clone(),
+				})
+				.collect::<Vec<Download>>()
+		}) {
 			let mut parent_dir = sync_dir();
 			parent_dir.push(self.date_time());
 

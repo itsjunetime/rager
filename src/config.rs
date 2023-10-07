@@ -18,7 +18,7 @@ pub struct Config {
 	// how many times to retry
 	pub sync_retry_limit: Option<usize>,
 	// the token to interact with the linear api
-	pub linear_token: Option<String>
+	pub linear_token: Option<String>,
 }
 
 impl Config {
@@ -36,8 +36,8 @@ impl Config {
 		let val = match text.parse::<toml::Value>() {
 			Err(err) => {
 				err!("Config file at {conf} is not proper TOML format: {err}");
-				return None
-			},
+				return None;
+			}
 			Ok(v) => v,
 		};
 
@@ -47,15 +47,10 @@ impl Config {
 		// and error out if that value doesn't exist
 		macro_rules! get_val {
 			($key:expr, $fn:ident) => {
-				table.get($key).map(|v| v.$fn())
-					.flatten()
-					.or_else(|| {
-						err!(
-							"Your config file does not include the field '{}'",
-							$key
-						);
-						None
-					})?
+				table.get($key).map(|v| v.$fn()).flatten().or_else(|| {
+					err!("Your config file does not include the field '{}'", $key);
+					None
+				})?
 			};
 		}
 
@@ -95,7 +90,7 @@ impl Config {
 			beeper_hacks,
 			cache_details,
 			sync_retry_limit,
-			linear_token
+			linear_token,
 		})
 	}
 

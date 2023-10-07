@@ -1,8 +1,14 @@
 use crate::{entry::Entry, errors::FilterErrors, sync_dir};
 use lazy_static::lazy_static;
 use regex::Regex;
-use std::{fs, sync::{Arc, Mutex, atomic::{AtomicUsize, Ordering}}};
-use requestty::{question::Question, PromptModule, OnEsc};
+use requestty::{question::Question, OnEsc, PromptModule};
+use std::{
+	fs,
+	sync::{
+		atomic::{AtomicUsize, Ordering},
+		Arc, Mutex,
+	},
+};
 
 const NUM_REP_STR: &str = "$bfr\x1b[34;1m$num\x1b[0m$aft";
 const NS_REP_STR: &str = "\x1b[32;1m$id\x1b[0m";
@@ -40,7 +46,8 @@ pub async fn view(
 	matches: Option<Vec<String>>,
 ) -> Result<(), FilterErrors> {
 	if !entry.is_downloaded() {
-		entry.ensure_all_files_downloaded()
+		entry
+			.ensure_all_files_downloaded()
 			.await
 			.map_err(|_| FilterErrors::FileRetrievalFailed)?;
 	}
@@ -75,32 +82,24 @@ pub async fn view(
 	// Else prompt them to choose a file to show
 	let to_show = file.or_else(|| {
 		// the list of files, formatted to show a string if they match
-		let string_paths = files
-			.iter()
-			.map(|log| {
-				if matches.as_ref().is_some_and(|m| m.contains(log)) {
-					format!("{log} (matches)")
-				} else {
-					log.clone()
-				}
-			});
+		let string_paths = files.iter().map(|log| {
+			if matches.as_ref().is_some_and(|m| m.contains(log)) {
+				format!("{log} (matches)")
+			} else {
+				log.clone()
+			}
+		});
 
 		// And ask the user what file they'd like to view
-		PromptModule::new(vec![
-			Question::select("")
-				.message("Files:")
-				.choices(string_paths)
-				.on_esc(OnEsc::Terminate)
-				.default(0)
-				.build()
-			])
-			.prompt_all()
-			.ok()
-			.and_then(|ans|
-				ans[""].as_list_item().map(|l|
-					files[l.index].clone()
-				)
-			)
+		PromptModule::new(vec![Question::select("")
+			.message("Files:")
+			.choices(string_paths)
+			.on_esc(OnEsc::Terminate)
+			.default(0)
+			.build()])
+		.prompt_all()
+		.ok()
+		.and_then(|ans| ans[""].as_list_item().map(|l| files[l.index].clone()))
 	});
 
 	if let Some(log) = to_show {
@@ -110,12 +109,10 @@ pub async fn view(
 
 		println!("Loading in log at {stored_loc:?}...\n");
 
-		let lines_str = fs::read_to_string(stored_loc)
-				.map_err(|_| FilterErrors::FileRetrievalFailed)?;
+		let lines_str =
+			fs::read_to_string(stored_loc).map_err(|_| FilterErrors::FileRetrievalFailed)?;
 
-		let lines = lines_str
-			.lines()
-			.collect::<Vec<&str>>();
+		let lines = lines_str.lines().collect::<Vec<&str>>();
 
 		let line_len = lines.len();
 
@@ -157,12 +154,15 @@ pub async fn view(
 						// If we have less chunks to iterate through than we have sections to print
 						// in the little loading indicator, we'll be printing something different
 						// every time that we get here, so we should continue.
-						if chunk_count >= LOADING_SECTIONS && done_now % (chunk_count / LOADING_SECTIONS) != 0 {
+						if chunk_count >= LOADING_SECTIONS
+							&& done_now % (chunk_count / LOADING_SECTIONS) != 0
+						{
 							return;
 						}
 
 						// calculate percentages to print out a nice little loading thing
-						let perc = ((done_now as f64 / chunk_count as f64) * LOADING_SECTIONS as f64) as usize;
+						let perc = ((done_now as f64 / chunk_count as f64)
+							* LOADING_SECTIONS as f64) as usize;
 
 						// get the character in the middle that won't be completely empty or full
 						let last_char = LAST_CHARS[perc % SECTIONS];
@@ -204,8 +204,12 @@ pub async fn view(
 
 		let pager = minus::Pager::new();
 
-		pager.set_text(file_contents).map_err(|_| FilterErrors::ViewPagingFailed)?;
-		pager.set_line_numbers(minus::LineNumbers::Disabled).map_err(|_| FilterErrors::ViewPagingFailed)?;
+		pager
+			.set_text(file_contents)
+			.map_err(|_| FilterErrors::ViewPagingFailed)?;
+		pager
+			.set_line_numbers(minus::LineNumbers::Disabled)
+			.map_err(|_| FilterErrors::ViewPagingFailed)?;
 
 		// set a nice prompt with all the details that we want them to see
 		let prompt_str = format!(
@@ -215,7 +219,9 @@ pub async fn view(
 			entry.user_id.unwrap_or_else(|| "unknown".to_owned()),
 			entry.reason.unwrap_or_else(|| "unknown".to_owned())
 		);
-		pager.set_prompt(prompt_str).map_err(|_| FilterErrors::ViewPagingFailed)?;
+		pager
+			.set_prompt(prompt_str)
+			.map_err(|_| FilterErrors::ViewPagingFailed)?;
 
 		minus::page_all(pager).map_err(|_| FilterErrors::ViewPagingFailed)?;
 	}

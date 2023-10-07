@@ -383,7 +383,7 @@ pub async fn download_files(
 		}
 	}))
 	// this one has to be buffered in order (while the others
-	// can safely be `.buffer_unordered()` since we need to 
+	// can safely be `.buffer_unordered()` since we need to
 	// download the oldest ones first
 	.buffered(conf.threads)
 	.collect::<Vec<()>>()
